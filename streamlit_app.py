@@ -635,63 +635,191 @@ GENOME_DATA = json.loads(r"""{
 
 # ==========================================================================
 # STREAMLIT UI
+#
+# Visual language borrowed from Unilever / HUL's own digital properties:
+#   · HUL corporate blue #035597 and Unilever deep blue #0F0E9A as the spine
+#   · the Unilever "U" — a letterform filled with small marks — as the wordmark
+#   · Shikhar's card-first, feed-like layout: every verdict is a card, not a row
+#   · unilever.com's habits: white surfaces, generous air, one accent, no chrome
 # ==========================================================================
+import html
 import streamlit as st
 
-st.set_page_config(page_title="Brand Genome", page_icon="🧬", layout="wide")
+st.set_page_config(page_title="Brand Genome · Project NEXT",
+                   page_icon="🧬", layout="wide",
+                   initial_sidebar_state="expanded")
 G = BrandGenome()
+
+VERDICT_STYLE = {
+    "ALLOW":   ("#00786F", "#E6F4F2", "✓", "Cleared for publication"),
+    "REVISE":  ("#B26A00", "#FDF3E3", "!", "Publishable after the genome's repair"),
+    "BLOCKED": ("#B3261E", "#FCEBE9", "✕", "Cannot ship — human decision required"),
+}
+DIM_LABEL = {"claims": "Claims", "tone": "Tone", "adjacency": "Adjacency",
+             "equity": "Equity", "visual": "Visual", "video_audio": "Spoken track"}
+
+# The Unilever U: a bold letterform carrying small marks. Homage, not the asset.
+U_MARK = """
+<svg viewBox="0 0 64 64" class="umark" aria-hidden="true">
+  <path d="M14 8 L14 36 A18 18 0 0 0 50 36 L50 8" fill="none"
+        stroke="currentColor" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="24" cy="20" r="2.6" fill="currentColor"/>
+  <circle cx="40" cy="20" r="2.6" fill="currentColor"/>
+  <circle cx="32" cy="31" r="2.6" fill="currentColor"/>
+  <circle cx="24" cy="42" r="2.6" fill="currentColor"/>
+  <circle cx="40" cy="42" r="2.6" fill="currentColor"/>
+  <path d="M28 55 h8" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+</svg>"""
 
 st.markdown("""
 <style>
-  /* Force light rendering regardless of the viewer's Streamlit theme.
-     Without this, a Cloud instance running dark mode renders near-white text
-     on our light background and the whole app appears blank. Explicit colours
-     beat a config file, which GitHub's uploader may drop (dot-folder). */
-  .stApp, .main, [data-testid="stAppViewContainer"] { background:#FAFBFE !important; }
-  [data-testid="stHeader"] { background:transparent !important; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
 
-  /* every text element in the main pane */
-  .stApp p, .stApp li, .stApp label, .stApp span, .stApp div,
-  .stApp h1, .stApp h2, .stApp h3, .stApp h4,
-  [data-testid="stMarkdownContainer"] * { color:#1A1A2E !important; }
+:root{
+  --hul:#035597; --hul-deep:#0F0E9A; --ink:#0B1B3A; --ink-2:#5C6B85;
+  --line:#E1E8F5; --surface:#FFFFFF; --canvas:#F5F8FD; --accent:#1B4DD1;
+}
 
-  /* metrics */
-  [data-testid="stMetricValue"] { color:#0A1F5C !important; }
-  [data-testid="stMetricLabel"] * { color:#5A6478 !important; }
+/* Force light rendering regardless of the viewer's Streamlit theme. Without
+   this a Cloud instance in dark mode paints near-white text on a light
+   background and the app reads as blank. Explicit colours beat a config file,
+   which GitHub's uploader may drop (dot-folder). */
+.stApp,[data-testid="stAppViewContainer"]{
+  background:var(--canvas)!important;
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif!important;}
+[data-testid="stHeader"]{background:transparent!important;}
+.block-container{padding-top:1.6rem!important;max-width:1180px;}
+.stApp p,.stApp li,.stApp label,.stApp span,.stApp div,
+.stApp h1,.stApp h2,.stApp h3,.stApp h4,
+[data-testid="stMarkdownContainer"] *{color:var(--ink)!important;}
+.stApp,.stApp *{font-family:'Inter',-apple-system,sans-serif;}
 
-  /* inputs */
-  .stTextArea textarea, .stTextInput input {
-      background:#FFFFFF !important; color:#1A1A2E !important;
-      border:1px solid #D3DDF0 !important; }
-  [data-baseweb="select"] > div {
-      background:#FFFFFF !important; color:#1A1A2E !important; }
+/* ---------- masthead ---------- */
+.mast{background:linear-gradient(115deg,#06255C 0%,var(--hul) 55%,#0B6BB8 100%);
+  border-radius:18px;padding:26px 32px;display:flex;align-items:center;gap:20px;
+  box-shadow:0 14px 34px -18px rgba(3,85,151,.65);margin-bottom:6px;}
+.mast *{color:#fff!important;}
+.umark{width:44px;height:44px;color:#fff;flex:0 0 44px;opacity:.95;}
+.mast__title{font-size:27px;font-weight:800;letter-spacing:-.5px;line-height:1.1;}
+.mast__sub{font-size:13.5px;opacity:.82;margin-top:5px;font-weight:450;}
+.mast__badge{margin-left:auto;text-align:right;font-size:11px;
+  letter-spacing:.14em;text-transform:uppercase;opacity:.8;line-height:1.7;}
+.mast__badge b{display:block;font-family:'JetBrains Mono',monospace;
+  font-size:13px;letter-spacing:.04em;opacity:1;}
 
-  /* inline code chips — evidence tokens */
-  .stApp code { background:#E8EEFA !important; color:#0A1F5C !important;
-                padding:1px 6px; border-radius:3px; }
+/* ---------- section labels ---------- */
+.sect{font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-2)!important;margin:26px 0 10px;display:flex;align-items:center;gap:10px;}
+.sect:after{content:"";flex:1;height:1px;background:var(--line);}
 
-  /* expander + json */
-  [data-testid="stExpander"] { background:#FFFFFF !important;
-                               border:1px solid #D3DDF0 !important; }
-  .stCodeBlock, .stCodeBlock * { color:#1A1A2E !important; }
+/* ---------- inputs ---------- */
+.stTextArea textarea,.stTextInput input{
+  background:var(--surface)!important;color:var(--ink)!important;
+  border:1px solid var(--line)!important;border-radius:12px!important;
+  font-size:15px!important;line-height:1.6!important;padding:14px 16px!important;
+  box-shadow:0 1px 2px rgba(11,27,58,.04)!important;}
+.stTextArea textarea:focus,.stTextInput input:focus{
+  border-color:var(--accent)!important;box-shadow:0 0 0 3px rgba(27,77,209,.12)!important;}
+[data-baseweb="select"]>div{background:var(--surface)!important;color:var(--ink)!important;
+  border:1px solid var(--line)!important;border-radius:12px!important;min-height:44px;}
+.stApp label{font-size:12px!important;font-weight:600!important;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2)!important;}
+.stButton button{background:var(--accent)!important;color:#fff!important;border:none!important;
+  border-radius:12px!important;font-weight:700!important;font-size:15px!important;
+  letter-spacing:.01em;padding:13px 20px!important;
+  box-shadow:0 8px 20px -10px rgba(27,77,209,.9)!important;transition:transform .12s ease;}
+.stButton button:hover{background:#153FAF!important;transform:translateY(-1px);}
+.stButton button *{color:#fff!important;}
 
-  /* sidebar stays dark on purpose */
-  [data-testid="stSidebar"] { background:#0A1F5C !important; }
-  [data-testid="stSidebar"] *, [data-testid="stSidebar"] p,
-  [data-testid="stSidebar"] span, [data-testid="stSidebar"] div {
-      color:#E8EEFA !important; }
+/* ---------- verdict hero ---------- */
+.verdict{display:flex;align-items:center;gap:20px;padding:22px 26px;border-radius:16px;
+  background:var(--surface);border:1px solid var(--line);border-left:7px solid var(--vc);
+  box-shadow:0 10px 30px -22px rgba(11,27,58,.55);}
+.verdict__mark{width:52px;height:52px;border-radius:14px;background:var(--vbg);
+  display:flex;align-items:center;justify-content:center;font-size:25px;font-weight:800;
+  color:var(--vc)!important;flex:0 0 52px;}
+.verdict__label{font-size:25px;font-weight:800;letter-spacing:.06em;color:var(--vc)!important;}
+.verdict__sub{font-size:13.5px;color:var(--ink-2)!important;margin-top:3px;}
+.verdict__rail{margin-left:auto;display:flex;gap:34px;text-align:right;}
+.verdict__rail div span{display:block;}
+.rail__n{font-size:22px;font-weight:700;color:var(--ink)!important;
+  font-family:'JetBrains Mono',monospace;}
+.rail__l{font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--ink-2)!important;margin-top:2px;}
 
-  /* buttons */
-  .stButton button { background:#1B4DD1 !important; color:#FFFFFF !important;
-                     border:none !important; font-weight:600; }
+/* ---------- violation cards ---------- */
+.viol{display:flex;gap:0;background:var(--surface);border:1px solid var(--line);
+  border-radius:13px;margin-bottom:9px;overflow:hidden;
+  box-shadow:0 4px 14px -12px rgba(11,27,58,.5);}
+.viol__bar{width:5px;flex:0 0 5px;background:var(--sc);}
+.viol__body{padding:14px 18px;flex:1;}
+.viol__head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:6px;}
+.sev{font-size:10px;font-weight:800;letter-spacing:.12em;padding:3px 8px;border-radius:5px;
+  background:var(--sbg);color:var(--sc)!important;}
+.rulechip{font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;
+  background:#EEF3FC;color:var(--hul)!important;padding:3px 8px;border-radius:5px;}
+.dim{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-2)!important;}
+.viol__reason{font-size:14.5px;line-height:1.55;color:var(--ink)!important;margin:0;}
+.ev{display:inline-block;margin-top:9px;font-family:'JetBrains Mono',monospace;
+  font-size:11.5px;background:#FFF4F2;border:1px dashed #F0C4BC;
+  color:#8C2C22!important;padding:3px 9px;border-radius:5px;}
 
-  /* our own classes */
-  .t  { font-size:30px; font-weight:700; color:#0A1F5C !important; margin-bottom:0; }
-  .s  { color:#5A6478 !important; font-size:14px; margin-top:2px; }
-  .v  { padding:10px 16px; border-radius:4px; font-weight:700; font-size:20px;
-        letter-spacing:1px; display:inline-block; color:#FFFFFF !important; }
-  .rule { font-family:Consolas,monospace; font-size:12px; font-weight:700; }
+/* ---------- repair diff ---------- */
+.diff{display:grid;grid-template-columns:1fr 44px 1fr;gap:0;align-items:stretch;}
+.diff__col{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+  padding:16px 18px;}
+.diff__col--out{border-color:#CFE7E2;background:#F4FBF9;}
+.diff__lab{font-size:10.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--ink-2)!important;margin-bottom:8px;}
+.diff__txt{font-size:15px;line-height:1.65;color:var(--ink)!important;}
+.diff__arrow{display:flex;align-items:center;justify-content:center;
+  font-size:20px;color:var(--ink-2)!important;}
+.subref{margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:11.5px;
+  color:#00786F!important;}
+
+/* ---------- escalation ---------- */
+.esc{background:#FFFBF2;border:1px solid #F0DDB8;border-left:5px solid #B26A00;
+  border-radius:13px;padding:16px 20px;font-size:14.5px;line-height:1.6;}
+.esc b{color:#8A5200!important;letter-spacing:.1em;font-size:11px;
+  text-transform:uppercase;display:block;margin-bottom:5px;}
+
+/* ---------- sidebar ---------- */
+[data-testid="stSidebar"]{background:#06255C!important;}
+[data-testid="stSidebar"] *{color:#D9E4F7!important;}
+[data-testid="stSidebar"] .block-container{padding-top:1.5rem;}
+.sb-head{display:flex;align-items:center;gap:11px;padding-bottom:14px;
+  border-bottom:1px solid rgba(255,255,255,.14);margin-bottom:16px;}
+.sb-head .umark{width:30px;height:30px;flex:0 0 30px;}
+.sb-title{font-size:16px;font-weight:800;letter-spacing:-.2px;color:#fff!important;}
+.sb-ver{font-family:'JetBrains Mono',monospace;font-size:10.5px;
+  color:#8FAAD6!important;margin-top:1px;}
+.sb-lab{font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+  color:#7E9BCC!important;margin:18px 0 9px;}
+.sb-card{background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.09);
+  border-radius:10px;padding:11px 13px;margin-bottom:8px;}
+.sb-card b{font-size:13.5px;color:#fff!important;}
+.sb-card small{display:block;font-size:11px;color:#9FB8DE!important;margin-top:3px;}
+.sw{display:flex;gap:4px;margin-top:8px;}
+.sw i{width:15px;height:15px;border-radius:4px;display:block;
+  border:1px solid rgba(255,255,255,.28);}
+.sb-mkt{display:flex;justify-content:space-between;font-size:12px;padding:6px 0;
+  border-bottom:1px solid rgba(255,255,255,.07);}
+.sb-mkt code{font-family:'JetBrains Mono',monospace;color:#fff!important;font-weight:700;}
+.sb-foot{margin-top:20px;padding:13px;border-radius:10px;
+  background:rgba(27,77,209,.22);border:1px solid rgba(120,165,240,.28);
+  font-size:11.5px;line-height:1.6;color:#C7D9F6!important;}
+.sb-foot b{color:#fff!important;}
+
+/* ---------- misc ---------- */
+[data-testid="stExpander"]{background:var(--surface)!important;
+  border:1px solid var(--line)!important;border-radius:13px!important;}
+[data-testid="stExpander"] summary{font-weight:600!important;font-size:13.5px!important;}
+.stCodeBlock,.stCodeBlock *{color:var(--ink)!important;font-size:12.5px!important;}
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:14px;
+  padding:34px;text-align:center;color:var(--ink-2)!important;font-size:14px;}
 </style>""", unsafe_allow_html=True)
+
 
 PRESETS = {
     "— pick a scenario —": ("dove", "IN", "", []),
@@ -713,34 +841,52 @@ PRESETS = {
         "Rexona gives up to 72h protection.", ["football", "fourth_official"]),
 }
 
+# ---------------------------------------------------------------- sidebar
 with st.sidebar:
-    st.markdown("### Brand Genome")
-    st.caption(f"v{G.g['version']} · updated {G.g['updated']}")
-    st.markdown("---")
-    st.markdown("**Encoded brands**")
-    for k, b in G.g["brands"].items():
-        st.caption(f"• {b['name']} — {len(b['claims'])} claims, "
-                   f"{len(b['banned_adjacencies'])} adjacencies, "
-                   f"{len(b['equity_guardrails'])} guardrails")
-    st.markdown("**Markets**")
-    for k, m in G.g["markets"].items():
-        if not k.startswith("_"):
-            st.caption(f"• {k} — {m['regulator']}")
-    st.markdown("---")
-    st.caption("**Deterministic.** No LLM in the adjudication path. "
-               "The model generates; the genome adjudicates.")
+    st.markdown(f"""<div class='sb-head'>{U_MARK}
+      <div><div class='sb-title'>Brand Genome</div>
+      <div class='sb-ver'>v{G.g['version']} · {G.g['updated']}</div></div></div>""",
+                unsafe_allow_html=True)
 
-st.markdown("<div class='t'>Brand Genome</div>", unsafe_allow_html=True)
-st.markdown("<div class='s'>The horizontal layer every agent calls before it acts "
-            "· Project NEXT · HUL TechTonic Season 8</div>", unsafe_allow_html=True)
-st.markdown("")
+    ver = G.version()
+    st.markdown(f"""<div class='sb-lab'>Portfolio coverage</div>
+      <div class='sb-card'><b>{ver['brands_encoded']} of {ver['brands_in_portfolio']} brands</b>
+      <small>{ver['coverage_pct']}% encoded · {ver['markets_encoded']} markets live</small></div>""",
+                unsafe_allow_html=True)
 
-preset = st.selectbox("Scenario", list(PRESETS.keys()))
+    st.markdown("<div class='sb-lab'>Encoded brands</div>", unsafe_allow_html=True)
+    for b in G.g["brands"].values():
+        sw = "".join(f"<i style='background:{c}'></i>" for c in b["visual"]["palette"])
+        st.markdown(f"""<div class='sb-card'><b>{b['name']}</b>
+          <small>{len(b['claims'])} claims · {len(b['banned_adjacencies'])} adjacencies
+          · {len(b['equity_guardrails'])} guardrails</small>
+          <div class='sw'>{sw}</div></div>""", unsafe_allow_html=True)
+
+    st.markdown("<div class='sb-lab'>Markets &amp; regulators</div>", unsafe_allow_html=True)
+    st.markdown("".join(
+        f"<div class='sb-mkt'><code>{k}</code><span>{m['regulator']}</span></div>"
+        for k, m in G.g["markets"].items() if not k.startswith("_")),
+        unsafe_allow_html=True)
+
+    st.markdown("""<div class='sb-foot'><b>Deterministic by design.</b><br>
+      No LLM sits in the adjudication path. The model generates;
+      the genome adjudicates. Never the reverse.</div>""", unsafe_allow_html=True)
+
+# ---------------------------------------------------------------- masthead
+st.markdown(f"""<div class='mast'>{U_MARK}
+  <div><div class='mast__title'>Brand Genome</div>
+  <div class='mast__sub'>The horizontal layer every creative agent calls before it acts</div></div>
+  <div class='mast__badge'>Project NEXT<b>TechTonic S8</b></div></div>""",
+            unsafe_allow_html=True)
+
+# ---------------------------------------------------------------- input
+st.markdown("<div class='sect'>Submit an asset</div>", unsafe_allow_html=True)
+preset = st.selectbox("Scenario", list(PRESETS.keys()), label_visibility="collapsed")
 pb, pm, pc, pt = PRESETS[preset]
 
-c1, c2 = st.columns([3, 1])
+c1, c2 = st.columns([3, 1.15], gap="medium")
 with c1:
-    copy = st.text_area("Proposed copy", value=pc, height=110,
+    copy = st.text_area("Proposed copy", value=pc, height=132,
                         placeholder="Paste what the creative agent produced…")
 with c2:
     brand = st.selectbox("Brand", [b["name"] for b in G.g["brands"].values()],
@@ -749,32 +895,71 @@ with c2:
                           index=0 if pm == "IN" else 1)
     tags = st.text_input("Context tags", value=", ".join(pt))
 
-if st.button("Evaluate against genome", type="primary", use_container_width=True) and copy.strip():
-    v = G.evaluate(brand, market, copy, [t.strip() for t in tags.split(",") if t.strip()])
-    col = {"BLOCKED": "#C0392B", "REVISE": "#C87A00", "ALLOW": "#00807D"}[v.verdict]
-    st.markdown(f"<span class='v' style='background:{col};color:#fff'>{v.verdict}</span>",
-                unsafe_allow_html=True)
-    a, b, c = st.columns(3)
-    a.metric("Rules evaluated", v.rules_evaluated)
-    b.metric("Latency", f"{v.latency_ms} ms")
-    c.metric("Violations", len(v.violations))
+go = st.button("Evaluate against genome", type="primary", use_container_width=True)
+
+# ---------------------------------------------------------------- verdict
+if go and copy.strip():
+    v = G.evaluate(brand, market, copy,
+                   [t.strip() for t in tags.split(",") if t.strip()])
+    vc, vbg, glyph, blurb = VERDICT_STYLE[v.verdict]
+    hard = sum(1 for x in v.violations if x.severity == "hard")
+    reg = G.market_rules(market)["regulator"]
+
+    st.markdown("<div class='sect'>Adjudication</div>", unsafe_allow_html=True)
+    st.markdown(f"""
+      <div class='verdict' style='--vc:{vc};--vbg:{vbg}'>
+        <div class='verdict__mark'>{glyph}</div>
+        <div><div class='verdict__label'>{v.verdict}</div>
+          <div class='verdict__sub'>{blurb} · {v.brand} · {v.market} · {reg}</div></div>
+        <div class='verdict__rail'>
+          <div><span class='rail__n'>{v.rules_evaluated}</span><span class='rail__l'>Rules</span></div>
+          <div><span class='rail__n'>{hard}</span><span class='rail__l'>Hard</span></div>
+          <div><span class='rail__n'>{len(v.violations) - hard}</span><span class='rail__l'>Soft</span></div>
+          <div><span class='rail__n'>{v.latency_ms}</span><span class='rail__l'>ms</span></div>
+        </div></div>""", unsafe_allow_html=True)
 
     if v.violations:
-        st.markdown("#### Violations")
-        for x in v.violations:
-            tag = "🔴 HARD" if x.severity == "hard" else "🟡 soft"
-            ev = f" · matched `{x.evidence}`" if x.evidence else ""
-            st.markdown(f"{tag} &nbsp; <span class='rule'>{x.rule}</span> &nbsp; "
-                        f"**{x.dimension}** — {x.reason}{ev}", unsafe_allow_html=True)
+        st.markdown(f"<div class='sect'>Violations · {len(v.violations)}</div>",
+                    unsafe_allow_html=True)
+        cards = []
+        for x in sorted(v.violations, key=lambda x: x.severity != "hard"):
+            sc, sbg = ("#B3261E", "#FCEBE9") if x.severity == "hard" else ("#B26A00", "#FDF3E3")
+            ev = (f"<span class='ev'>matched “{html.escape(x.evidence)}”</span>"
+                  if x.evidence else "")
+            cards.append(f"""
+              <div class='viol' style='--sc:{sc};--sbg:{sbg}'>
+                <div class='viol__bar'></div>
+                <div class='viol__body'>
+                  <div class='viol__head'>
+                    <span class='sev'>{x.severity.upper()}</span>
+                    <span class='rulechip'>{x.rule}</span>
+                    <span class='dim'>{DIM_LABEL.get(x.dimension, x.dimension)}</span>
+                  </div>
+                  <p class='viol__reason'>{html.escape(x.reason)}</p>{ev}
+                </div></div>""")
+        st.markdown("".join(cards), unsafe_allow_html=True)
 
     if v.approved_variant:
-        st.markdown("#### Approved variant")
-        st.success(v.approved_variant)
-        if v.substantiation_ref:
-            st.caption(f"Substantiation on file: {v.substantiation_ref}")
-    if v.escalation:
-        st.markdown("#### Escalation")
-        st.warning(v.escalation)
+        st.markdown("<div class='sect'>Deterministic repair</div>", unsafe_allow_html=True)
+        ref = (f"<div class='subref'>Substantiation on file · {html.escape(v.substantiation_ref)}</div>"
+               if v.substantiation_ref else "")
+        st.markdown(f"""
+          <div class='diff'>
+            <div class='diff__col'><div class='diff__lab'>Submitted</div>
+              <div class='diff__txt'>{html.escape(copy.strip())}</div></div>
+            <div class='diff__arrow'>→</div>
+            <div class='diff__col diff__col--out'><div class='diff__lab'>Genome-approved variant</div>
+              <div class='diff__txt'>{html.escape(v.approved_variant)}</div>{ref}</div>
+          </div>""", unsafe_allow_html=True)
 
-    with st.expander("Audit record (what the trail stores)"):
+    if v.escalation:
+        st.markdown("<div class='sect'>Escalation</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='esc'><b>Human decision required</b>"
+                    f"{html.escape(v.escalation)}</div>", unsafe_allow_html=True)
+
+    with st.expander("Audit record — what the trail stores"):
         st.code(v.to_json(), language="json")
+else:
+    st.markdown("<div class='sect'>Adjudication</div>", unsafe_allow_html=True)
+    st.markdown("<div class='empty'>Pick a scenario or paste copy, "
+                "then evaluate against the genome.</div>", unsafe_allow_html=True)
