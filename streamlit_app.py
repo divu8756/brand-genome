@@ -1,30 +1,38 @@
 """
 streamlit_app.py — Brand Genome constraint engine.
 Project NEXT · HUL TechTonic Season 8
+
 SINGLE FILE BY DESIGN. Engine, rules and brand data are all inlined.
+
 Why: GitHub's web uploader silently skips zero-byte files, so an empty
 core/__init__.py never arrives and `from core.genome import ...` fails on
 Streamlit Cloud with ModuleNotFoundError. One file cannot have that problem.
+
     streamlit run streamlit_app.py
+
 Deterministic. No LLM in the adjudication path. The model generates; the
 genome adjudicates. Never the reverse.
 """
 from __future__ import annotations
 import re, json, time
 from dataclasses import dataclass, asdict, field
+
+
 # ══════════════════════════════════════════════════════════════
 # Verdict types
 # ══════════════════════════════════════════════════════════════
 @dataclass
 class Violation:
     rule: str
-    severity: str # "hard" blocks, "soft" warns and logs
+    severity: str          # "hard" blocks, "soft" warns and logs
     dimension: str
     reason: str
     evidence: str = ""
+
+
 @dataclass
 class Verdict:
-    verdict: str # ALLOW | REVISE | BLOCKED
+    verdict: str                       # ALLOW | REVISE | BLOCKED
     brand: str
     market: str
     violations: list = field(default_factory=list)
@@ -33,26 +41,32 @@ class Verdict:
     latency_ms: float = 0.0
     rules_evaluated: int = 0
     escalation: str | None = None
+
     def to_json(self) -> str:
         d = asdict(self)
         d["violations"] = [asdict(v) if not isinstance(v, dict) else v
                            for v in self.violations]
         return json.dumps(d, indent=2)
+
+
 # ══════════════════════════════════════════════════════════════
 # The genome itself — loaded from JSON, not hard-coded
 # ══════════════════════════════════════════════════════════════
 class BrandGenome:
     def __init__(self, path=None):
-        self.g = GENOME_DATA # embedded below — no file I/O, no packages
-        self._log: list = [] # decision + override audit trail
+        self.g = GENOME_DATA          # embedded below — no file I/O, no packages
+        self._log: list = []          # decision + override audit trail
+
     # ---------- helpers ----------
     def brand(self, name: str) -> dict:
         b = self.g["brands"].get(name.lower())
         if not b:
             raise KeyError(f"no genome encoded for brand '{name}'")
         return b
+
     def market_rules(self, market: str) -> dict:
         return self.g["markets"].get(market.upper(), self.g["markets"]["_DEFAULT"])
+
     # ---------- the five checks ----------
     def _check_claims(self, copy: str, brand: dict, market: dict) -> list:
         out, low = [], copy.lower()
@@ -83,6 +97,7 @@ class BrandGenome:
                     reason=f"'{term}' is a restricted therapeutic claim in this market.",
                     evidence=term))
         return out
+
     def _check_tone(self, copy: str, brand: dict) -> list:
         out, low = [], copy.lower()
         t = brand["tone"]
@@ -107,6 +122,7 @@ class BrandGenome:
                 reason="All-caps emphasis is outside the brand's typographic voice.",
                 evidence=", ".join(caps)))
         return out
+
     def _check_adjacency(self, copy: str, tags: list, brand: dict) -> list:
         out, hay = [], (copy + " " + " ".join(tags)).lower()
         for adj in brand["banned_adjacencies"]:
@@ -119,6 +135,7 @@ class BrandGenome:
                         evidence=kw))
                     break
         return out
+
     def _check_equity(self, copy: str, brand: dict) -> list:
         out, low = [], copy.lower()
         for g in brand["equity_guardrails"]:
@@ -127,6 +144,7 @@ class BrandGenome:
                     rule=g["rule"], severity="hard", dimension="equity",
                     reason=g["reason"]))
         return out
+
     def _check_visual(self, asset: dict, brand: dict) -> list:
         """
         Multimodal checks. The brief's own example is a VIDEO meme, so an engine
@@ -166,10 +184,12 @@ class BrandGenome:
                               reason="In spoken track: " + x.reason, evidence=x.evidence)
                     for x in self._check_tone(asset["transcript"], brand)]
         return out
+
     # ---------- repair ----------
     def _repair(self, copy: str, violations: list, brand: dict, market: dict) -> tuple:
         """
         Deterministic repair. An LLM may polish the result; it may never decide.
+
         Only CLAIMS and TONE are auto-repairable. Adjacency and equity violations
         are NOT: they require a different creative idea, not a word swap, and
         pretending otherwise would let a bad concept through with clean copy.
@@ -184,10 +204,12 @@ class BrandGenome:
         blocking = [v for v in violations
                     if v.dimension in ("adjacency", "equity")
                     or v.rule.startswith("RG-")]
+
         # Order matters: strip quantifiers as a unit BEFORE substituting verbs,
         # and substitute restricted terms rather than deleting them, or the
         # sentence loses its verb and the repair reads as broken English.
         rules_hit = {v.rule for v in repairable}
+
         if "CL-4471" in rules_hit:
             best = max((c for c in brand["claims"] if c["market_ok"]),
                        key=lambda c: c["max_pct"], default=None)
@@ -199,6 +221,7 @@ class BrandGenome:
                 if best["verb"].lower() in fixed.lower():
                     fixed = re.sub(re.escape(best["verb"]),
                                    best["approved_phrasing"], fixed, flags=re.I)
+
         for v in repairable:
             if v.rule == "CL-4488" and v.evidence:
                 fixed = re.sub(rf"\s*\b{re.escape(v.evidence)}\b\s*", " ", fixed, flags=re.I)
@@ -211,6 +234,7 @@ class BrandGenome:
             elif v.rule == "TN-0140":
                 fixed = re.sub(r"\b([A-Z]{4,})\b",
                                lambda m: m.group(1).capitalize(), fixed)
+
         # tidy
         fixed = re.sub(r"\s+([.,;:])", r"\1", fixed)
         fixed = re.sub(r"([.,;:]){2,}", r"\1", fixed)
@@ -221,6 +245,7 @@ class BrandGenome:
         fixed = re.sub(r"\s{2,}", " ", fixed).strip()
         if fixed and fixed[0].islower():
             fixed = fixed[0].upper() + fixed[1:]
+
         if blocking:
             reg = [v for v in blocking if v.rule.startswith("RG-")]
             if reg:
@@ -232,6 +257,7 @@ class BrandGenome:
             return (None, ref, f"New creative concept required: {topics} violation "
                                f"cannot be repaired by rewording.")
         return (fixed, ref, None)
+
     # ---------- drift, versioning, override logging ----------
     def record_decision(self, verdict, human_action: str, actor: str,
                         note: str = "") -> dict:
@@ -247,6 +273,7 @@ class BrandGenome:
                "actor": actor, "note": note, "genome_version": self.g["version"]}
         self._log.append(rec)
         return rec
+
     def override_rate(self, brand: str | None = None) -> dict:
         """Tracked per brand. Rising override rate = the genome is wrong."""
         rows = [r for r in self._log
@@ -258,6 +285,7 @@ class BrandGenome:
                 "overrides": n_ovr, "override_rate": round(rate, 3),
                 "verdict": ("RECALIBRATE — genome is over-constraining" if rate > 0.12
                             else "healthy")}
+
     def drift(self, recent_copies: list, brand: str) -> dict:
         """
         Drift detection. No single asset is wrong, but the aggregate has moved.
@@ -276,6 +304,7 @@ class BrandGenome:
                 "n_assets": len(recent_copies),
                 "status": ("DRIFT DETECTED — tone is loosening" if delta > 0.15
                            else "within tolerance")}
+
     def version(self) -> dict:
         """Brand evolution as a diff, not a memo."""
         return {"version": self.g["version"], "updated": self.g["updated"],
@@ -285,21 +314,25 @@ class BrandGenome:
                                       / self.g.get("portfolio_size", 400), 1),
                 "markets_encoded": len([k for k in self.g["markets"]
                                         if not k.startswith("_")])}
+
     # ---------- the public API ----------
     def evaluate(self, brand: str, market: str, copy: str,
                  context_tags: list | None = None, asset: dict | None = None) -> Verdict:
         t0 = time.perf_counter()
         b, m = self.brand(brand), self.market_rules(market)
         tags, asset = context_tags or [], asset or {}
+
         v = []
         v += self._check_claims(copy, b, m)
         v += self._check_tone(copy, b)
         v += self._check_adjacency(copy, tags, b)
         v += self._check_equity(copy, b)
         v += self._check_visual(asset, b)
+
         n_rules = (len(b["claims"]) + len(m["banned_phrases"]) +
                    len(m["restricted_terms"]) + len(b["tone"]["banned_words"]) +
                    len(b["banned_adjacencies"]) + len(b["equity_guardrails"]) + 3)
+
         hard = [x for x in v if x.severity == "hard"]
         verdict = "BLOCKED" if hard else ("REVISE" if v else "ALLOW")
         variant, ref, escalation = (None, None, None)
@@ -307,11 +340,14 @@ class BrandGenome:
             variant, ref, escalation = self._repair(copy, v, b, m)
             if variant and variant.strip().lower() == copy.strip().lower():
                 variant = None
+
         return Verdict(verdict=verdict, brand=b["name"], market=market.upper(),
                        violations=v, approved_variant=variant,
                        substantiation_ref=ref,
                        latency_ms=round((time.perf_counter() - t0) * 1000, 1),
                        rules_evaluated=n_rules, escalation=escalation)
+
+
 # ==========================================================================
 # EMBEDDED GENOME DATA
 # ==========================================================================
@@ -595,28 +631,33 @@ GENOME_DATA = json.loads(r"""{
  },
  "portfolio_size": 400
 }""")
+
+
 # ==========================================================================
 # STREAMLIT UI
 #
 # Visual language borrowed from Unilever / HUL's own digital properties:
-# · HUL corporate blue #035597 and Unilever deep blue #0F0E9A as the spine
-# · the Unilever "U" — a letterform filled with small marks — as the wordmark
-# · Shikhar's card-first, feed-like layout: every verdict is a card, not a row
-# · unilever.com's habits: white surfaces, generous air, one accent, no chrome
+#   · HUL corporate blue #035597 and Unilever deep blue #0F0E9A as the spine
+#   · the Unilever "U" — a letterform filled with small marks — as the wordmark
+#   · Shikhar's card-first, feed-like layout: every verdict is a card, not a row
+#   · unilever.com's habits: white surfaces, generous air, one accent, no chrome
 # ==========================================================================
 import html
 import streamlit as st
+
 st.set_page_config(page_title="Brand Genome · Project NEXT",
                    page_icon="🧬", layout="wide",
                    initial_sidebar_state="expanded")
 G = BrandGenome()
+
 VERDICT_STYLE = {
-    "ALLOW": ("#00786F", "#E6F4F2", "✓", "Cleared for publication"),
-    "REVISE": ("#B26A00", "#FDF3E3", "!", "Publishable after the genome's repair"),
+    "ALLOW":   ("#00786F", "#E6F4F2", "✓", "Cleared for publication"),
+    "REVISE":  ("#B26A00", "#FDF3E3", "!", "Publishable after the genome's repair"),
     "BLOCKED": ("#B3261E", "#FCEBE9", "✕", "Cannot ship — human decision required"),
 }
 DIM_LABEL = {"claims": "Claims", "tone": "Tone", "adjacency": "Adjacency",
              "equity": "Equity", "visual": "Visual", "video_audio": "Spoken track"}
+
 # The Unilever U: a bold letterform carrying small marks. Homage, not the asset.
 U_MARK = """
 <svg viewBox="0 0 64 64" class="umark" aria-hidden="true">
@@ -629,53 +670,48 @@ U_MARK = """
   <circle cx="40" cy="42" r="2.6" fill="currentColor"/>
   <path d="M28 55 h8" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
 </svg>"""
+
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+
 :root{
   --hul:#035597; --hul-deep:#0F0E9A; --ink:#0B1B3A; --ink-2:#5C6B85;
   --line:#E1E8F5; --surface:#FFFFFF; --canvas:#F5F8FD; --accent:#1B4DD1;
 }
-/* Force light rendering regardless of the viewer's Streamlit theme. Explicit
-   colours beat a config file. Do NOT paint every span/div — that breaks
-   Streamlit's own toolbar, share menu, expander chevrons and code highlighters. */
+
+/* Force light rendering regardless of the viewer's Streamlit theme. Without
+   this a Cloud instance in dark mode paints near-white text on a light
+   background and the app reads as blank. Explicit colours beat a config file,
+   which GitHub's uploader may drop (dot-folder). */
 .stApp,[data-testid="stAppViewContainer"]{
   background:var(--canvas)!important;
   font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif!important;}
 [data-testid="stHeader"]{background:transparent!important;}
 .block-container{padding-top:1.6rem!important;max-width:1180px;}
-/* Targeted colour only for content text — never global * or bare span/div */
-.stApp p, .stApp li, .stApp label,
-.stApp h1, .stApp h2, .stApp h3, .stApp h4,
-[data-testid="stMarkdownContainer"] p,
-[data-testid="stMarkdownContainer"] li,
-[data-testid="stMarkdownContainer"] h1,
-[data-testid="stMarkdownContainer"] h2,
-[data-testid="stMarkdownContainer"] h3,
-[data-testid="stMarkdownContainer"] h4{
-  color:var(--ink)!important;}
-.stApp, .stApp p, .stApp li, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp h4{
-  font-family:'Inter',-apple-system,sans-serif;}
+.stApp p,.stApp li,.stApp label,.stApp span,.stApp div,
+.stApp h1,.stApp h2,.stApp h3,.stApp h4,
+[data-testid="stMarkdownContainer"] *{color:var(--ink)!important;}
+.stApp,.stApp *{font-family:'Inter',-apple-system,sans-serif;}
+
 /* ---------- masthead ---------- */
 .mast{background:linear-gradient(115deg,#06255C 0%,var(--hul) 55%,#0B6BB8 100%);
-  border-radius:18px;padding:22px 28px;display:flex;align-items:center;gap:16px;
-  box-shadow:0 14px 34px -18px rgba(3,85,151,.65);margin-bottom:6px;
-  overflow:hidden; /* prevent text bleed / cut-off on narrow viewports */}
+  border-radius:18px;padding:26px 32px;display:flex;align-items:center;gap:20px;
+  box-shadow:0 14px 34px -18px rgba(3,85,151,.65);margin-bottom:6px;}
 .mast *{color:#fff!important;}
-.umark{width:40px;height:40px;color:#fff;flex:0 0 40px;opacity:.95;}
-.mast__title{font-size:24px;font-weight:800;letter-spacing:-.4px;line-height:1.15;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.mast__sub{font-size:13px;opacity:.82;margin-top:4px;font-weight:450;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.mast__badge{margin-left:auto;text-align:right;font-size:10px;
-  letter-spacing:.12em;text-transform:uppercase;opacity:.85;line-height:1.6;
-  flex:0 0 auto;white-space:nowrap;}
+.umark{width:44px;height:44px;color:#fff;flex:0 0 44px;opacity:.95;}
+.mast__title{font-size:27px;font-weight:800;letter-spacing:-.5px;line-height:1.1;}
+.mast__sub{font-size:13.5px;opacity:.82;margin-top:5px;font-weight:450;}
+.mast__badge{margin-left:auto;text-align:right;font-size:11px;
+  letter-spacing:.14em;text-transform:uppercase;opacity:.8;line-height:1.7;}
 .mast__badge b{display:block;font-family:'JetBrains Mono',monospace;
-  font-size:12px;letter-spacing:.04em;opacity:1;}
+  font-size:13px;letter-spacing:.04em;opacity:1;}
+
 /* ---------- section labels ---------- */
 .sect{font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
   color:var(--ink-2)!important;margin:26px 0 10px;display:flex;align-items:center;gap:10px;}
 .sect:after{content:"";flex:1;height:1px;background:var(--line);}
+
 /* ---------- inputs ---------- */
 .stTextArea textarea,.stTextInput input{
   background:var(--surface)!important;color:var(--ink)!important;
@@ -694,6 +730,7 @@ st.markdown("""
   box-shadow:0 8px 20px -10px rgba(27,77,209,.9)!important;transition:transform .12s ease;}
 .stButton button:hover{background:#153FAF!important;transform:translateY(-1px);}
 .stButton button *{color:#fff!important;}
+
 /* ---------- verdict hero ---------- */
 .verdict{display:flex;align-items:center;gap:20px;padding:22px 26px;border-radius:16px;
   background:var(--surface);border:1px solid var(--line);border-left:7px solid var(--vc);
@@ -709,6 +746,7 @@ st.markdown("""
   font-family:'JetBrains Mono',monospace;}
 .rail__l{font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
   color:var(--ink-2)!important;margin-top:2px;}
+
 /* ---------- violation cards ---------- */
 .viol{display:flex;gap:0;background:var(--surface);border:1px solid var(--line);
   border-radius:13px;margin-bottom:9px;overflow:hidden;
@@ -726,30 +764,26 @@ st.markdown("""
 .ev{display:inline-block;margin-top:9px;font-family:'JetBrains Mono',monospace;
   font-size:11.5px;background:#FFF4F2;border:1px dashed #F0C4BC;
   color:#8C2C22!important;padding:3px 9px;border-radius:5px;}
+
 /* ---------- repair diff ---------- */
-.diff{display:grid;grid-template-columns:1fr 56px 1fr;gap:0;align-items:stretch;}
+.diff{display:grid;grid-template-columns:1fr 44px 1fr;gap:0;align-items:stretch;}
 .diff__col{background:var(--surface);border:1px solid var(--line);border-radius:14px;
-  padding:16px 18px;min-width:0;}
+  padding:16px 18px;}
 .diff__col--out{border-color:#CFE7E2;background:#F4FBF9;}
 .diff__lab{font-size:10.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
   color:var(--ink-2)!important;margin-bottom:8px;}
-.diff__txt{font-size:15px;line-height:1.65;color:var(--ink)!important;word-break:break-word;}
-.diff__arrow{display:flex;align-items:center;justify-content:center;}
-.diff__arrow-badge{
-  width:40px;height:40px;border-radius:50%;
-  background:linear-gradient(135deg,#E8F5F2 0%,#D4EDE7 100%);
-  border:1.5px solid #A8D5CB;
-  display:flex;align-items:center;justify-content:center;
-  box-shadow:0 4px 12px -4px rgba(0,120,111,.35);
-  font-size:18px;line-height:1;color:#00786F!important;
-  flex:0 0 40px;}
+.diff__txt{font-size:15px;line-height:1.65;color:var(--ink)!important;}
+.diff__arrow{display:flex;align-items:center;justify-content:center;
+  font-size:20px;color:var(--ink-2)!important;}
 .subref{margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:11.5px;
   color:#00786F!important;}
+
 /* ---------- escalation ---------- */
 .esc{background:#FFFBF2;border:1px solid #F0DDB8;border-left:5px solid #B26A00;
   border-radius:13px;padding:16px 20px;font-size:14.5px;line-height:1.6;}
 .esc b{color:#8A5200!important;letter-spacing:.1em;font-size:11px;
   text-transform:uppercase;display:block;margin-bottom:5px;}
+
 /* ---------- sidebar ---------- */
 [data-testid="stSidebar"]{background:#06255C!important;}
 [data-testid="stSidebar"] *{color:#D9E4F7!important;}
@@ -776,23 +810,17 @@ st.markdown("""
   background:rgba(27,77,209,.22);border:1px solid rgba(120,165,240,.28);
   font-size:11.5px;line-height:1.6;color:#C7D9F6!important;}
 .sb-foot b{color:#fff!important;}
-/* ---------- misc / expander / code ---------- */
+
+/* ---------- misc ---------- */
 [data-testid="stExpander"]{background:var(--surface)!important;
   border:1px solid var(--line)!important;border-radius:13px!important;}
-[data-testid="stExpander"] summary{
-  font-weight:600!important;font-size:13.5px!important;
-  color:var(--ink)!important;}
-/* Do not force colour on code blocks — preserve Streamlit syntax highlighting */
-.stCodeBlock{font-size:12.5px!important;}
+[data-testid="stExpander"] summary{font-weight:600!important;font-size:13.5px!important;}
+.stCodeBlock,.stCodeBlock *{color:var(--ink)!important;font-size:12.5px!important;}
 .empty{background:var(--surface);border:1px dashed var(--line);border-radius:14px;
   padding:34px;text-align:center;color:var(--ink-2)!important;font-size:14px;}
-/* Protect Streamlit chrome (header toolbar, share, etc.) from our colour rules */
-[data-testid="stToolbar"], [data-testid="stToolbar"] *,
-[data-testid="stHeader"] *, [data-testid="stDecoration"],
-.stDeployButton, .stDeployButton * {
-  color: inherit !important;
-}
 </style>""", unsafe_allow_html=True)
+
+
 PRESETS = {
     "— pick a scenario —": ("dove", "IN", "", []),
     "The demo moment (Dove, IN)": ("dove", "IN",
@@ -812,17 +840,20 @@ PRESETS = {
         "Six added minutes. The one person who cannot lose their cool. "
         "Rexona gives up to 72h protection.", ["football", "fourth_official"]),
 }
+
 # ---------------------------------------------------------------- sidebar
 with st.sidebar:
     st.markdown(f"""<div class='sb-head'>{U_MARK}
       <div><div class='sb-title'>Brand Genome</div>
       <div class='sb-ver'>v{G.g['version']} · {G.g['updated']}</div></div></div>""",
                 unsafe_allow_html=True)
+
     ver = G.version()
     st.markdown(f"""<div class='sb-lab'>Portfolio coverage</div>
       <div class='sb-card'><b>{ver['brands_encoded']} of {ver['brands_in_portfolio']} brands</b>
       <small>{ver['coverage_pct']}% encoded · {ver['markets_encoded']} markets live</small></div>""",
                 unsafe_allow_html=True)
+
     st.markdown("<div class='sb-lab'>Encoded brands</div>", unsafe_allow_html=True)
     for b in G.g["brands"].values():
         sw = "".join(f"<i style='background:{c}'></i>" for c in b["visual"]["palette"])
@@ -830,26 +861,29 @@ with st.sidebar:
           <small>{len(b['claims'])} claims · {len(b['banned_adjacencies'])} adjacencies
           · {len(b['equity_guardrails'])} guardrails</small>
           <div class='sw'>{sw}</div></div>""", unsafe_allow_html=True)
+
     st.markdown("<div class='sb-lab'>Markets &amp; regulators</div>", unsafe_allow_html=True)
     st.markdown("".join(
         f"<div class='sb-mkt'><code>{k}</code><span>{m['regulator']}</span></div>"
         for k, m in G.g["markets"].items() if not k.startswith("_")),
         unsafe_allow_html=True)
+
     st.markdown("""<div class='sb-foot'><b>Deterministic by design.</b><br>
       No LLM sits in the adjudication path. The model generates;
       the genome adjudicates. Never the reverse.</div>""", unsafe_allow_html=True)
+
 # ---------------------------------------------------------------- masthead
 st.markdown(f"""<div class='mast'>{U_MARK}
-  <div style="min-width:0;flex:1 1 auto;overflow:hidden">
-    <div class='mast__title'>Brand Genome</div>
-    <div class='mast__sub'>The horizontal layer every creative agent calls before it acts</div>
-  </div>
-  <div class='mast__badge'>Project NEXT<br><b>TechTonic S8</b></div></div>""",
+  <div><div class='mast__title'>Brand Genome</div>
+  <div class='mast__sub'>The horizontal layer every creative agent calls before it acts</div></div>
+  <div class='mast__badge'>Project NEXT<b>TechTonic S8</b></div></div>""",
             unsafe_allow_html=True)
+
 # ---------------------------------------------------------------- input
 st.markdown("<div class='sect'>Submit an asset</div>", unsafe_allow_html=True)
 preset = st.selectbox("Scenario", list(PRESETS.keys()), label_visibility="collapsed")
 pb, pm, pc, pt = PRESETS[preset]
+
 c1, c2 = st.columns([3, 1.15], gap="medium")
 with c1:
     copy = st.text_area("Proposed copy", value=pc, height=132,
@@ -860,7 +894,9 @@ with c2:
     market = st.selectbox("Market", [k for k in G.g["markets"] if not k.startswith("_")],
                           index=0 if pm == "IN" else 1)
     tags = st.text_input("Context tags", value=", ".join(pt))
+
 go = st.button("Evaluate against genome", type="primary", use_container_width=True)
+
 # ---------------------------------------------------------------- verdict
 if go and copy.strip():
     v = G.evaluate(brand, market, copy,
@@ -868,6 +904,7 @@ if go and copy.strip():
     vc, vbg, glyph, blurb = VERDICT_STYLE[v.verdict]
     hard = sum(1 for x in v.violations if x.severity == "hard")
     reg = G.market_rules(market)["regulator"]
+
     st.markdown("<div class='sect'>Adjudication</div>", unsafe_allow_html=True)
     st.markdown(f"""
       <div class='verdict' style='--vc:{vc};--vbg:{vbg}'>
@@ -880,6 +917,7 @@ if go and copy.strip():
           <div><span class='rail__n'>{len(v.violations) - hard}</span><span class='rail__l'>Soft</span></div>
           <div><span class='rail__n'>{v.latency_ms}</span><span class='rail__l'>ms</span></div>
         </div></div>""", unsafe_allow_html=True)
+
     if v.violations:
         st.markdown(f"<div class='sect'>Violations · {len(v.violations)}</div>",
                     unsafe_allow_html=True)
@@ -900,6 +938,7 @@ if go and copy.strip():
                   <p class='viol__reason'>{html.escape(x.reason)}</p>{ev}
                 </div></div>""")
         st.markdown("".join(cards), unsafe_allow_html=True)
+
     if v.approved_variant:
         st.markdown("<div class='sect'>Deterministic repair</div>", unsafe_allow_html=True)
         ref = (f"<div class='subref'>Substantiation on file · {html.escape(v.substantiation_ref)}</div>"
@@ -908,21 +947,16 @@ if go and copy.strip():
           <div class='diff'>
             <div class='diff__col'><div class='diff__lab'>Submitted</div>
               <div class='diff__txt'>{html.escape(copy.strip())}</div></div>
-            <div class='diff__arrow'>
-              <div class='diff__arrow-badge' title="Deterministic repair">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M5 12h12M13 6l6 6-6 6" stroke="#00786F" stroke-width="2.4"
-                        stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </div>
-            </div>
+            <div class='diff__arrow'>→</div>
             <div class='diff__col diff__col--out'><div class='diff__lab'>Genome-approved variant</div>
               <div class='diff__txt'>{html.escape(v.approved_variant)}</div>{ref}</div>
           </div>""", unsafe_allow_html=True)
+
     if v.escalation:
         st.markdown("<div class='sect'>Escalation</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='esc'><b>Human decision required</b>"
                     f"{html.escape(v.escalation)}</div>", unsafe_allow_html=True)
+
     with st.expander("Audit record — what the trail stores"):
         st.code(v.to_json(), language="json")
 else:
