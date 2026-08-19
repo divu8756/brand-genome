@@ -727,15 +727,22 @@ st.markdown("""
   font-size:11.5px;background:#FFF4F2;border:1px dashed #F0C4BC;
   color:#8C2C22!important;padding:3px 9px;border-radius:5px;}
 /* ---------- repair diff ---------- */
-.diff{display:grid;grid-template-columns:1fr 44px 1fr;gap:0;align-items:stretch;}
+.diff{display:grid;grid-template-columns:1fr 56px 1fr;gap:0;align-items:stretch;}
 .diff__col{background:var(--surface);border:1px solid var(--line);border-radius:14px;
-  padding:16px 18px;}
+  padding:16px 18px;min-width:0;}
 .diff__col--out{border-color:#CFE7E2;background:#F4FBF9;}
 .diff__lab{font-size:10.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
   color:var(--ink-2)!important;margin-bottom:8px;}
-.diff__txt{font-size:15px;line-height:1.65;color:var(--ink)!important;}
-.diff__arrow{display:flex;align-items:center;justify-content:center;
-  font-size:22px;color:var(--ink-2)!important;font-weight:700;}
+.diff__txt{font-size:15px;line-height:1.65;color:var(--ink)!important;word-break:break-word;}
+.diff__arrow{display:flex;align-items:center;justify-content:center;}
+.diff__arrow-badge{
+  width:40px;height:40px;border-radius:50%;
+  background:linear-gradient(135deg,#E8F5F2 0%,#D4EDE7 100%);
+  border:1.5px solid #A8D5CB;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 12px -4px rgba(0,120,111,.35);
+  font-size:18px;line-height:1;color:#00786F!important;
+  flex:0 0 40px;}
 .subref{margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:11.5px;
   color:#00786F!important;}
 /* ---------- escalation ---------- */
@@ -901,7 +908,14 @@ if go and copy.strip():
           <div class='diff'>
             <div class='diff__col'><div class='diff__lab'>Submitted</div>
               <div class='diff__txt'>{html.escape(copy.strip())}</div></div>
-            <div class='diff__arrow'>→</div>
+            <div class='diff__arrow'>
+              <div class='diff__arrow-badge' title="Deterministic repair">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M5 12h12M13 6l6 6-6 6" stroke="#00786F" stroke-width="2.4"
+                        stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+            </div>
             <div class='diff__col diff__col--out'><div class='diff__lab'>Genome-approved variant</div>
               <div class='diff__txt'>{html.escape(v.approved_variant)}</div>{ref}</div>
           </div>""", unsafe_allow_html=True)
