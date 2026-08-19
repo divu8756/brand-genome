@@ -1,0 +1,780 @@
+"""
+streamlit_app.py — Brand Genome constraint engine.
+Project NEXT · HUL TechTonic Season 8
+
+SINGLE FILE BY DESIGN. Engine, rules and brand data are all inlined.
+
+Why: GitHub's web uploader silently skips zero-byte files, so an empty
+core/__init__.py never arrives and `from core.genome import ...` fails on
+Streamlit Cloud with ModuleNotFoundError. One file cannot have that problem.
+
+    streamlit run streamlit_app.py
+
+Deterministic. No LLM in the adjudication path. The model generates; the
+genome adjudicates. Never the reverse.
+"""
+from __future__ import annotations
+import re, json, time
+from dataclasses import dataclass, asdict, field
+
+
+# ══════════════════════════════════════════════════════════════
+# Verdict types
+# ══════════════════════════════════════════════════════════════
+@dataclass
+class Violation:
+    rule: str
+    severity: str          # "hard" blocks, "soft" warns and logs
+    dimension: str
+    reason: str
+    evidence: str = ""
+
+
+@dataclass
+class Verdict:
+    verdict: str                       # ALLOW | REVISE | BLOCKED
+    brand: str
+    market: str
+    violations: list = field(default_factory=list)
+    approved_variant: str | None = None
+    substantiation_ref: str | None = None
+    latency_ms: float = 0.0
+    rules_evaluated: int = 0
+    escalation: str | None = None
+
+    def to_json(self) -> str:
+        d = asdict(self)
+        d["violations"] = [asdict(v) if not isinstance(v, dict) else v
+                           for v in self.violations]
+        return json.dumps(d, indent=2)
+
+
+# ══════════════════════════════════════════════════════════════
+# The genome itself — loaded from JSON, not hard-coded
+# ══════════════════════════════════════════════════════════════
+class BrandGenome:
+    def __init__(self, path=None):
+        self.g = GENOME_DATA          # embedded below — no file I/O, no packages
+        self._log: list = []          # decision + override audit trail
+
+    # ---------- helpers ----------
+    def brand(self, name: str) -> dict:
+        b = self.g["brands"].get(name.lower())
+        if not b:
+            raise KeyError(f"no genome encoded for brand '{name}'")
+        return b
+
+    def market_rules(self, market: str) -> dict:
+        return self.g["markets"].get(market.upper(), self.g["markets"]["_DEFAULT"])
+
+    # ---------- the five checks ----------
+    def _check_claims(self, copy: str, brand: dict, market: dict) -> list:
+        out, low = [], copy.lower()
+        # 1. Quantified claims need a substantiation reference
+        for m in re.finditer(r"(\d{1,3})\s?%", copy):
+            pct = int(m.group(1))
+            substantiated = any(c["max_pct"] >= pct and c["market_ok"]
+                                for c in brand["claims"])
+            if not substantiated:
+                out.append(Violation(
+                    rule="CL-4471", severity="hard", dimension="claims",
+                    reason=f"Quantified claim '{pct}%' has no substantiation on file "
+                           f"for this market ({market['regulator']}).",
+                    evidence=m.group(0)))
+        # 2. Absolute-time claims
+        for phrase in market["banned_phrases"]:
+            if phrase in low:
+                out.append(Violation(
+                    rule="CL-4488", severity="hard", dimension="claims",
+                    reason=f"Phrase '{phrase}' constitutes an unsupported absolute "
+                           f"claim under {market['regulator']} guidance.",
+                    evidence=phrase))
+        # 3. Category-restricted claims
+        for term, rule in market["restricted_terms"].items():
+            if term in low:
+                out.append(Violation(
+                    rule=rule, severity="hard", dimension="claims",
+                    reason=f"'{term}' is a restricted therapeutic claim in this market.",
+                    evidence=term))
+        return out
+
+    def _check_tone(self, copy: str, brand: dict) -> list:
+        out, low = [], copy.lower()
+        t = brand["tone"]
+        excl = copy.count("!")
+        if excl > t["max_exclamations"]:
+            out.append(Violation(
+                rule="TN-0112", severity="soft", dimension="tone",
+                reason=f"{excl} exclamation marks exceeds the {brand['name']} tone "
+                       f"ceiling of {t['max_exclamations']}.",
+                evidence="!" * excl))
+        for word in t["banned_words"]:
+            if re.search(rf"\b{re.escape(word)}\b", low):
+                out.append(Violation(
+                    rule="TN-0134", severity="soft", dimension="tone",
+                    reason=f"'{word}' sits outside the {brand['name']} voice "
+                           f"({t['descriptor']}).",
+                    evidence=word))
+        caps = re.findall(r"\b[A-Z]{4,}\b", copy)
+        if caps and not t["allow_caps"]:
+            out.append(Violation(
+                rule="TN-0140", severity="soft", dimension="tone",
+                reason="All-caps emphasis is outside the brand's typographic voice.",
+                evidence=", ".join(caps)))
+        return out
+
+    def _check_adjacency(self, copy: str, tags: list, brand: dict) -> list:
+        out, hay = [], (copy + " " + " ".join(tags)).lower()
+        for adj in brand["banned_adjacencies"]:
+            for kw in adj["keywords"]:
+                if kw in hay:
+                    out.append(Violation(
+                        rule=adj["rule"], severity="hard", dimension="adjacency",
+                        reason=f"{brand['name']} must never appear alongside "
+                               f"{adj['topic']}. {adj['why']}",
+                        evidence=kw))
+                    break
+        return out
+
+    def _check_equity(self, copy: str, brand: dict) -> list:
+        out, low = [], copy.lower()
+        for g in brand["equity_guardrails"]:
+            if any(k in low for k in g["keywords"]):
+                out.append(Violation(
+                    rule=g["rule"], severity="hard", dimension="equity",
+                    reason=g["reason"]))
+        return out
+
+    def _check_visual(self, asset: dict, brand: dict) -> list:
+        """
+        Multimodal checks. The brief's own example is a VIDEO meme, so an engine
+        that only reads text would fail the case it was designed for.
+        `asset` carries whatever the upstream vision model extracted.
+        """
+        out, v = [], brand["visual"]
+        pal = [p.upper() for p in v["palette"]]
+        for c in asset.get("colours", []):
+            if c.upper() not in pal:
+                out.append(Violation(
+                    rule="VS-0203", severity="soft", dimension="visual",
+                    reason=f"Colour {c} is outside the approved {brand['name']} palette.",
+                    evidence=c))
+        for obj in asset.get("detected_objects", []):
+            for banned in v.get("banned_objects", []):
+                if banned in obj.lower():
+                    out.append(Violation(
+                        rule="VS-0211", severity="hard", dimension="visual",
+                        reason=f"Detected object '{obj}' is prohibited in "
+                               f"{brand['name']} imagery.", evidence=obj))
+        logo = asset.get("logo_clear_space_pct")
+        if logo is not None and logo < v.get("min_logo_clear_space_pct", 0):
+            out.append(Violation(
+                rule="VS-0220", severity="soft", dimension="visual",
+                reason=f"Logo clear space {logo}% is below the "
+                       f"{v['min_logo_clear_space_pct']}% minimum.",
+                evidence=f"{logo}%"))
+        dur = asset.get("duration_s")
+        if dur is not None and dur > v.get("max_video_seconds", 999):
+            out.append(Violation(
+                rule="VS-0231", severity="soft", dimension="visual",
+                reason=f"Video runs {dur}s against a {v['max_video_seconds']}s "
+                       f"ceiling for this format.", evidence=f"{dur}s"))
+        if asset.get("transcript"):
+            out += [Violation(rule=x.rule, severity=x.severity, dimension="video_audio",
+                              reason="In spoken track: " + x.reason, evidence=x.evidence)
+                    for x in self._check_tone(asset["transcript"], brand)]
+        return out
+
+    # ---------- repair ----------
+    def _repair(self, copy: str, violations: list, brand: dict, market: dict) -> tuple:
+        """
+        Deterministic repair. An LLM may polish the result; it may never decide.
+
+        Only CLAIMS and TONE are auto-repairable. Adjacency and equity violations
+        are NOT: they require a different creative idea, not a word swap, and
+        pretending otherwise would let a bad concept through with clean copy.
+        """
+        fixed, ref = copy, None
+        # Regulatory (RG-*) violations are NOT auto-repairable: a restricted
+        # therapeutic claim is a legal exposure, not a wording slip. Rewording it
+        # would let a legally exposed concept through with clean copy.
+        repairable = [v for v in violations
+                      if v.dimension in ("claims", "tone", "visual")
+                      and not v.rule.startswith("RG-")]
+        blocking = [v for v in violations
+                    if v.dimension in ("adjacency", "equity")
+                    or v.rule.startswith("RG-")]
+
+        # Order matters: strip quantifiers as a unit BEFORE substituting verbs,
+        # and substitute restricted terms rather than deleting them, or the
+        # sentence loses its verb and the repair reads as broken English.
+        rules_hit = {v.rule for v in repairable}
+
+        if "CL-4471" in rules_hit:
+            best = max((c for c in brand["claims"] if c["market_ok"]),
+                       key=lambda c: c["max_pct"], default=None)
+            # remove "by 90%", "by up to 90%", "90% more" as one unit
+            fixed = re.sub(r"\s*\b(by|up to)?\s*\d{1,3}\s?%\s*(more|less|fewer)?",
+                           " ", fixed, flags=re.I)
+            if best:
+                ref = best["ref"]
+                if best["verb"].lower() in fixed.lower():
+                    fixed = re.sub(re.escape(best["verb"]),
+                                   best["approved_phrasing"], fixed, flags=re.I)
+
+        for v in repairable:
+            if v.rule == "CL-4488" and v.evidence:
+                fixed = re.sub(rf"\s*\b{re.escape(v.evidence)}\b\s*", " ", fixed, flags=re.I)
+            elif v.rule == "TN-0112":
+                fixed = re.sub(r"!+", ".", fixed)
+            elif v.rule == "TN-0134" and v.evidence:
+                sub = brand["tone"]["substitutions"].get(v.evidence.lower())
+                if sub:
+                    fixed = re.sub(rf"\b{re.escape(v.evidence)}\b", sub, fixed, flags=re.I)
+            elif v.rule == "TN-0140":
+                fixed = re.sub(r"\b([A-Z]{4,})\b",
+                               lambda m: m.group(1).capitalize(), fixed)
+
+        # tidy
+        fixed = re.sub(r"\s+([.,;:])", r"\1", fixed)
+        fixed = re.sub(r"([.,;:]){2,}", r"\1", fixed)
+        fixed = re.sub(r"\s{2,}", " ", fixed).strip()
+        fixed = re.sub(r"^[\s.,;:—-]+", "", fixed)
+        fixed = re.sub(r"\b(and|by|with)\s*(?=[.,;:]|$)", "", fixed, flags=re.I)
+        fixed = re.sub(r"\s+([.,;:])", r"\1", fixed)
+        fixed = re.sub(r"\s{2,}", " ", fixed).strip()
+        if fixed and fixed[0].islower():
+            fixed = fixed[0].upper() + fixed[1:]
+
+        if blocking:
+            reg = [v for v in blocking if v.rule.startswith("RG-")]
+            if reg:
+                return (None, ref,
+                        f"Legal escalation required: {len(reg)} restricted therapeutic "
+                        f"claim(s). Regulatory violations are never auto-repaired \u2014 "
+                        f"route to market legal before any rewrite.")
+            topics = ", ".join(sorted({v.dimension for v in blocking}))
+            return (None, ref, f"New creative concept required: {topics} violation "
+                               f"cannot be repaired by rewording.")
+        return (fixed, ref, None)
+
+    # ---------- drift, versioning, override logging ----------
+    def record_decision(self, verdict, human_action: str, actor: str,
+                        note: str = "") -> dict:
+        """
+        Override logging. If brand teams routinely overrule the genome, the
+        genome is miscalibrated and must be retrained — not enforced harder.
+        Override rate is the product metric that keeps it honest.
+        """
+        rec = {"ts": time.time(), "brand": verdict.brand, "market": verdict.market,
+               "genome_verdict": verdict.verdict, "human_action": human_action,
+               "override": human_action == "publish" and verdict.verdict == "BLOCKED",
+               "rules": [v.rule for v in verdict.violations],
+               "actor": actor, "note": note, "genome_version": self.g["version"]}
+        self._log.append(rec)
+        return rec
+
+    def override_rate(self, brand: str | None = None) -> dict:
+        """Tracked per brand. Rising override rate = the genome is wrong."""
+        rows = [r for r in self._log
+                if brand is None or r["brand"].lower() == brand.lower()]
+        blocked = [r for r in rows if r["genome_verdict"] == "BLOCKED"]
+        n_ovr = sum(1 for r in blocked if r["override"])
+        rate = n_ovr / len(blocked) if blocked else 0.0
+        return {"decisions": len(rows), "blocked": len(blocked),
+                "overrides": n_ovr, "override_rate": round(rate, 3),
+                "verdict": ("RECALIBRATE — genome is over-constraining" if rate > 0.12
+                            else "healthy")}
+
+    def drift(self, recent_copies: list, brand: str) -> dict:
+        """
+        Drift detection. No single asset is wrong, but the aggregate has moved.
+        Measures soft-violation density against the approved baseline — the
+        failure mode nobody notices until the brand has quietly changed.
+        """
+        b = self.brand(brand)
+        base = b.get("baseline_soft_rate", 0.10)
+        rates = []
+        for c in recent_copies:
+            soft = [v for v in self._check_tone(c, b) if v.severity == "soft"]
+            rates.append(len(soft) / max(1, len(c.split()) / 20))
+        cur = sum(rates) / len(rates) if rates else 0.0
+        delta = cur - base
+        return {"baseline": base, "current": round(cur, 3), "delta": round(delta, 3),
+                "n_assets": len(recent_copies),
+                "status": ("DRIFT DETECTED — tone is loosening" if delta > 0.15
+                           else "within tolerance")}
+
+    def version(self) -> dict:
+        """Brand evolution as a diff, not a memo."""
+        return {"version": self.g["version"], "updated": self.g["updated"],
+                "brands_encoded": len(self.g["brands"]),
+                "brands_in_portfolio": self.g.get("portfolio_size", 400),
+                "coverage_pct": round(100 * len(self.g["brands"])
+                                      / self.g.get("portfolio_size", 400), 1),
+                "markets_encoded": len([k for k in self.g["markets"]
+                                        if not k.startswith("_")])}
+
+    # ---------- the public API ----------
+    def evaluate(self, brand: str, market: str, copy: str,
+                 context_tags: list | None = None, asset: dict | None = None) -> Verdict:
+        t0 = time.perf_counter()
+        b, m = self.brand(brand), self.market_rules(market)
+        tags, asset = context_tags or [], asset or {}
+
+        v = []
+        v += self._check_claims(copy, b, m)
+        v += self._check_tone(copy, b)
+        v += self._check_adjacency(copy, tags, b)
+        v += self._check_equity(copy, b)
+        v += self._check_visual(asset, b)
+
+        n_rules = (len(b["claims"]) + len(m["banned_phrases"]) +
+                   len(m["restricted_terms"]) + len(b["tone"]["banned_words"]) +
+                   len(b["banned_adjacencies"]) + len(b["equity_guardrails"]) + 3)
+
+        hard = [x for x in v if x.severity == "hard"]
+        verdict = "BLOCKED" if hard else ("REVISE" if v else "ALLOW")
+        variant, ref, escalation = (None, None, None)
+        if v:
+            variant, ref, escalation = self._repair(copy, v, b, m)
+            if variant and variant.strip().lower() == copy.strip().lower():
+                variant = None
+
+        return Verdict(verdict=verdict, brand=b["name"], market=market.upper(),
+                       violations=v, approved_variant=variant,
+                       substantiation_ref=ref,
+                       latency_ms=round((time.perf_counter() - t0) * 1000, 1),
+                       rules_evaluated=n_rules, escalation=escalation)
+
+
+# ==========================================================================
+# EMBEDDED GENOME DATA
+# ==========================================================================
+GENOME_DATA = json.loads(r"""{
+ "version": "1.0.0",
+ "updated": "2026-08-12",
+ "markets": {
+  "IN": {
+   "regulator": "ASCI",
+   "banned_phrases": [
+    "instantly",
+    "overnight results",
+    "guaranteed",
+    "permanently cures"
+   ],
+   "restricted_terms": {
+    "cures": "RG-IN-101",
+    "clinically proven to cure": "RG-IN-101",
+    "prevents disease": "RG-IN-104"
+   }
+  },
+  "UK": {
+   "regulator": "ASA",
+   "banned_phrases": [
+    "guaranteed",
+    "miracle",
+    "instantly"
+   ],
+   "restricted_terms": {
+    "cures": "RG-UK-201",
+    "prevents disease": "RG-UK-204"
+   }
+  },
+  "_DEFAULT": {
+   "regulator": "local advertising authority",
+   "banned_phrases": [
+    "guaranteed",
+    "miracle"
+   ],
+   "restricted_terms": {
+    "cures": "RG-XX-001"
+   }
+  }
+ },
+ "brands": {
+  "dove": {
+   "name": "Dove",
+   "tone": {
+    "descriptor": "warm, plain-spoken, never ironic or hyperbolic",
+    "max_exclamations": 0,
+    "allow_caps": false,
+    "banned_words": [
+     "flawless",
+     "perfect",
+     "anti-ageing",
+     "slim",
+     "obsessed"
+    ],
+    "substitutions": {
+     "flawless": "healthy-looking",
+     "perfect": "cared-for",
+     "anti-ageing": "age-embracing",
+     "slim": "comfortable",
+     "obsessed": "delighted"
+    }
+   },
+   "claims": [
+    {
+     "verb": "reduces hair fall",
+     "approved_phrasing": "helps reduce hair fall with regular use",
+     "max_pct": 0,
+     "market_ok": true,
+     "ref": "DV-2024-117 (clinical, 8-week, n=214)"
+    },
+    {
+     "verb": "repairs damage",
+     "approved_phrasing": "helps repair the look of damage",
+     "max_pct": 0,
+     "market_ok": true,
+     "ref": "DV-2023-088 (instrumental)"
+    }
+   ],
+   "banned_adjacencies": [
+    {
+     "rule": "AD-0901",
+     "topic": "weight loss or body shrinking",
+     "keywords": [
+      "weight loss",
+      "slimming",
+      "shed kilos",
+      "lose weight",
+      "fat burn"
+     ],
+     "why": "It contradicts the Real Beauty equity built since 2004."
+    },
+    {
+     "rule": "AD-0907",
+     "topic": "cosmetic surgery or injectables",
+     "keywords": [
+      "botox",
+      "filler",
+      "surgery",
+      "cosmetic procedure"
+     ],
+     "why": "Dove's position is care, not correction."
+    }
+   ],
+   "equity_guardrails": [
+    {
+     "rule": "EQ-1101",
+     "keywords": [
+      "ugly",
+      "fix your face",
+      "before and after"
+     ],
+     "reason": "Deficit framing of appearance is a permanent-damage violation for Dove, not a temporary embarrassment."
+    }
+   ],
+   "visual": {
+    "palette": [
+     "#FFFFFF",
+     "#0A3C7D",
+     "#F4C7C3",
+     "#E8EEFA"
+    ],
+    "banned_objects": [
+     "weighing scale",
+     "measuring tape",
+     "syringe"
+    ],
+    "min_logo_clear_space_pct": 12,
+    "max_video_seconds": 30
+   },
+   "baseline_soft_rate": 0.1
+  },
+  "rexona": {
+   "name": "Rexona",
+   "tone": {
+    "descriptor": "confident, energetic, performance-led; never mocking",
+    "max_exclamations": 2,
+    "allow_caps": true,
+    "banned_words": [
+     "smelly",
+     "stink",
+     "disgusting",
+     "gross"
+    ],
+    "substitutions": {
+     "smelly": "under pressure",
+     "stink": "sweat",
+     "disgusting": "intense",
+     "gross": "tough"
+    }
+   },
+   "claims": [
+    {
+     "verb": "protects",
+     "approved_phrasing": "gives up to 72h protection",
+     "max_pct": 0,
+     "market_ok": true,
+     "ref": "RX-2025-041 (72h protocol, n=180)"
+    }
+   ],
+   "banned_adjacencies": [
+    {
+     "rule": "AD-0912",
+     "topic": "body shaming or personal ridicule",
+     "keywords": [
+      "loser",
+      "shame",
+      "humiliate",
+      "pathetic"
+     ],
+     "why": "The brand backs the person under pressure; it never mocks them."
+    },
+    {
+     "rule": "AD-0915",
+     "topic": "match-official controversy or refereeing decisions",
+     "keywords": [
+      "bad call",
+      "blind ref",
+      "wrong decision",
+      "robbed"
+     ],
+     "why": "Taking a side in an officiating dispute converts a warm moment into a partisan one."
+    }
+   ],
+   "equity_guardrails": [
+    {
+     "rule": "EQ-1108",
+     "keywords": [
+      "never sweat",
+      "stops sweating completely"
+     ],
+     "reason": "Rexona's promise is performance under sweat, not its elimination. Overclaiming here breaks the tagline."
+    }
+   ],
+   "visual": {
+    "palette": [
+     "#003DA5",
+     "#FFFFFF",
+     "#E4002B",
+     "#111111"
+    ],
+    "banned_objects": [
+     "referee card",
+     "scoreboard dispute"
+    ],
+    "min_logo_clear_space_pct": 10,
+    "max_video_seconds": 15
+   },
+   "baseline_soft_rate": 0.14
+  },
+  "lifebuoy": {
+   "name": "Lifebuoy",
+   "tone": {
+    "descriptor": "protective, practical, community-minded; never fear-mongering",
+    "max_exclamations": 1,
+    "allow_caps": false,
+    "banned_words": [
+     "deadly",
+     "killer",
+     "lethal",
+     "terrifying"
+    ],
+    "substitutions": {
+     "deadly": "harmful",
+     "killer": "harmful",
+     "lethal": "harmful",
+     "terrifying": "serious"
+    }
+   },
+   "claims": [
+    {
+     "verb": "removes germs",
+     "approved_phrasing": "helps remove 99.9% of germs",
+     "max_pct": 99,
+     "market_ok": true,
+     "ref": "LB-2024-203 (in-vitro, EN1499)"
+    }
+   ],
+   "banned_adjacencies": [
+    {
+     "rule": "AD-0920",
+     "topic": "named disease outbreaks",
+     "keywords": [
+      "covid",
+      "outbreak",
+      "epidemic",
+      "pandemic"
+     ],
+     "why": "Public-health events must not be used as a commercial hook."
+    }
+   ],
+   "equity_guardrails": [
+    {
+     "rule": "EQ-1115",
+     "keywords": [
+      "your family will get sick",
+      "protect or lose"
+     ],
+     "reason": "Fear-based parental framing is a permanent-damage violation for a hygiene brand."
+    }
+   ],
+   "visual": {
+    "palette": [
+     "#E4002B",
+     "#FFFFFF",
+     "#00A0DF",
+     "#1A1A1A"
+    ],
+    "banned_objects": [
+     "hospital bed",
+     "medical mask"
+    ],
+    "min_logo_clear_space_pct": 10,
+    "max_video_seconds": 30
+   },
+   "baseline_soft_rate": 0.09
+  }
+ },
+ "portfolio_size": 400
+}""")
+
+
+# ==========================================================================
+# STREAMLIT UI
+# ==========================================================================
+import streamlit as st
+
+st.set_page_config(page_title="Brand Genome", page_icon="🧬", layout="wide")
+G = BrandGenome()
+
+st.markdown("""
+<style>
+  /* Force light rendering regardless of the viewer's Streamlit theme.
+     Without this, a Cloud instance running dark mode renders near-white text
+     on our light background and the whole app appears blank. Explicit colours
+     beat a config file, which GitHub's uploader may drop (dot-folder). */
+  .stApp, .main, [data-testid="stAppViewContainer"] { background:#FAFBFE !important; }
+  [data-testid="stHeader"] { background:transparent !important; }
+
+  /* every text element in the main pane */
+  .stApp p, .stApp li, .stApp label, .stApp span, .stApp div,
+  .stApp h1, .stApp h2, .stApp h3, .stApp h4,
+  [data-testid="stMarkdownContainer"] * { color:#1A1A2E !important; }
+
+  /* metrics */
+  [data-testid="stMetricValue"] { color:#0A1F5C !important; }
+  [data-testid="stMetricLabel"] * { color:#5A6478 !important; }
+
+  /* inputs */
+  .stTextArea textarea, .stTextInput input {
+      background:#FFFFFF !important; color:#1A1A2E !important;
+      border:1px solid #D3DDF0 !important; }
+  [data-baseweb="select"] > div {
+      background:#FFFFFF !important; color:#1A1A2E !important; }
+
+  /* inline code chips — evidence tokens */
+  .stApp code { background:#E8EEFA !important; color:#0A1F5C !important;
+                padding:1px 6px; border-radius:3px; }
+
+  /* expander + json */
+  [data-testid="stExpander"] { background:#FFFFFF !important;
+                               border:1px solid #D3DDF0 !important; }
+  .stCodeBlock, .stCodeBlock * { color:#1A1A2E !important; }
+
+  /* sidebar stays dark on purpose */
+  [data-testid="stSidebar"] { background:#0A1F5C !important; }
+  [data-testid="stSidebar"] *, [data-testid="stSidebar"] p,
+  [data-testid="stSidebar"] span, [data-testid="stSidebar"] div {
+      color:#E8EEFA !important; }
+
+  /* buttons */
+  .stButton button { background:#1B4DD1 !important; color:#FFFFFF !important;
+                     border:none !important; font-weight:600; }
+
+  /* our own classes */
+  .t  { font-size:30px; font-weight:700; color:#0A1F5C !important; margin-bottom:0; }
+  .s  { color:#5A6478 !important; font-size:14px; margin-top:2px; }
+  .v  { padding:10px 16px; border-radius:4px; font-weight:700; font-size:20px;
+        letter-spacing:1px; display:inline-block; color:#FFFFFF !important; }
+  .rule { font-family:Consolas,monospace; font-size:12px; font-weight:700; }
+</style>""", unsafe_allow_html=True)
+
+PRESETS = {
+    "— pick a scenario —": ("dove", "IN", "", []),
+    "The demo moment (Dove, IN)": ("dove", "IN",
+        "Reduces hair fall by 90% instantly! Get that FLAWLESS, perfect hair "
+        "you're obsessed with — the ultimate weight loss for your hair.",
+        ["monsoon", "hair_care"]),
+    "Repairable — claims + tone only (Dove, IN)": ("dove", "IN",
+        "Reduces hair fall by 90% instantly! Get that FLAWLESS, perfect hair "
+        "you're obsessed with.", ["hair_care"]),
+    "Regulatory escalation (Lifebuoy, IN)": ("lifebuoy", "IN",
+        "Lifebuoy cures germs and prevents disease. Deadly bacteria don't stand a chance.",
+        ["hygiene"]),
+    "The Rexona moment, done wrong": ("rexona", "IN",
+        "That was a bad call by the ref! Rexona: you'll never sweat again, guaranteed!!!",
+        ["football", "viral", "fourth_official"]),
+    "The Rexona moment, done right": ("rexona", "IN",
+        "Six added minutes. The one person who cannot lose their cool. "
+        "Rexona gives up to 72h protection.", ["football", "fourth_official"]),
+}
+
+with st.sidebar:
+    st.markdown("### Brand Genome")
+    st.caption(f"v{G.g['version']} · updated {G.g['updated']}")
+    st.markdown("---")
+    st.markdown("**Encoded brands**")
+    for k, b in G.g["brands"].items():
+        st.caption(f"• {b['name']} — {len(b['claims'])} claims, "
+                   f"{len(b['banned_adjacencies'])} adjacencies, "
+                   f"{len(b['equity_guardrails'])} guardrails")
+    st.markdown("**Markets**")
+    for k, m in G.g["markets"].items():
+        if not k.startswith("_"):
+            st.caption(f"• {k} — {m['regulator']}")
+    st.markdown("---")
+    st.caption("**Deterministic.** No LLM in the adjudication path. "
+               "The model generates; the genome adjudicates.")
+
+st.markdown("<div class='t'>Brand Genome</div>", unsafe_allow_html=True)
+st.markdown("<div class='s'>The horizontal layer every agent calls before it acts "
+            "· Project NEXT · HUL TechTonic Season 8</div>", unsafe_allow_html=True)
+st.markdown("")
+
+preset = st.selectbox("Scenario", list(PRESETS.keys()))
+pb, pm, pc, pt = PRESETS[preset]
+
+c1, c2 = st.columns([3, 1])
+with c1:
+    copy = st.text_area("Proposed copy", value=pc, height=110,
+                        placeholder="Paste what the creative agent produced…")
+with c2:
+    brand = st.selectbox("Brand", [b["name"] for b in G.g["brands"].values()],
+                         index=list(G.g["brands"]).index(pb))
+    market = st.selectbox("Market", [k for k in G.g["markets"] if not k.startswith("_")],
+                          index=0 if pm == "IN" else 1)
+    tags = st.text_input("Context tags", value=", ".join(pt))
+
+if st.button("Evaluate against genome", type="primary", use_container_width=True) and copy.strip():
+    v = G.evaluate(brand, market, copy, [t.strip() for t in tags.split(",") if t.strip()])
+    col = {"BLOCKED": "#C0392B", "REVISE": "#C87A00", "ALLOW": "#00807D"}[v.verdict]
+    st.markdown(f"<span class='v' style='background:{col};color:#fff'>{v.verdict}</span>",
+                unsafe_allow_html=True)
+    a, b, c = st.columns(3)
+    a.metric("Rules evaluated", v.rules_evaluated)
+    b.metric("Latency", f"{v.latency_ms} ms")
+    c.metric("Violations", len(v.violations))
+
+    if v.violations:
+        st.markdown("#### Violations")
+        for x in v.violations:
+            tag = "🔴 HARD" if x.severity == "hard" else "🟡 soft"
+            ev = f" · matched `{x.evidence}`" if x.evidence else ""
+            st.markdown(f"{tag} &nbsp; <span class='rule'>{x.rule}</span> &nbsp; "
+                        f"**{x.dimension}** — {x.reason}{ev}", unsafe_allow_html=True)
+
+    if v.approved_variant:
+        st.markdown("#### Approved variant")
+        st.success(v.approved_variant)
+        if v.substantiation_ref:
+            st.caption(f"Substantiation on file: {v.substantiation_ref}")
+    if v.escalation:
+        st.markdown("#### Escalation")
+        st.warning(v.escalation)
+
+    with st.expander("Audit record (what the trail stores)"):
+        st.code(v.to_json(), language="json")
