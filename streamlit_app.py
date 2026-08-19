@@ -630,7 +630,7 @@ U_MARK = """
   <path d="M28 55 h8" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
 </svg>"""
 
-# Safe, isolated CSS styling that prevents text overlaps and component bugs
+# Safe, isolated CSS styling including explicit fixes for expander background/text shading
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
@@ -710,6 +710,21 @@ st.markdown("""
 .bg-esc { background: #FFFBF2; border: 1px solid #F0DDB8; border-left: 5px solid #B26A00; border-radius: 12px; padding: 14px 18px; font-size: 14px; line-height: 1.5; color: var(--ink); }
 .bg-esc b { color: #8A5200; letter-spacing: .08em; font-size: 10px; text-transform: uppercase; display: block; margin-bottom: 4px; }
 
+/* Fix Expander Shading / Contrast Issues */
+[data-testid="stExpander"] {
+  background-color: #FFFFFF !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px rgba(11,27,58,0.04) !important;
+}
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary span,
+[data-testid="stExpander"] summary p,
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] p {
+  color: var(--ink) !important;
+  font-weight: 600 !important;
+}
+
 /* Sidebar styling */
 [data-testid="stSidebar"] { background: #06255C !important; }
 [data-testid="stSidebar"] * { color: #D9E4F7 !important; }
@@ -774,7 +789,7 @@ with st.sidebar:
     st.markdown("<div class='sb-lab'>Markets &amp; regulators</div>", unsafe_allow_html=True)
     for k, m in G.g["markets"].items():
         if not k.startswith("_"):
-            st.markdown(f"<div style='display:flex;justify-content:space-y-0;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.06);'><code>{k}</code><span>{m['regulator']}</span></div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.06);'><code>{k}</code><span>{m['regulator']}</span></div>", unsafe_allow_html=True)
 
     st.markdown("""<div class='sb-foot'><b>Deterministic by design.</b><br>
       No LLM in the adjudication path. The model generates;
