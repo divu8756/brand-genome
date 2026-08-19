@@ -32,7 +32,7 @@ class Violation:
 
 @dataclass
 class Verdict:
-    verdict: str                       # ALLOW | REVISE | BLOCKED
+    verdict: str                        # ALLOW | REVISE | BLOCKED
     brand: str
     market: str
     violations: list = field(default_factory=list)
@@ -181,7 +181,7 @@ class BrandGenome:
                        f"ceiling for this format.", evidence=f"{dur}s"))
         if asset.get("transcript"):
             out += [Violation(rule=x.rule, severity=x.severity, dimension="video_audio",
-                              reason="In spoken track: " + x.reason, evidence=x.evidence)
+                            reason="In spoken track: " + x.reason, evidence=x.evidence)
                     for x in self._check_tone(asset["transcript"], brand)]
         return out
 
@@ -251,7 +251,7 @@ class BrandGenome:
             if reg:
                 return (None, ref,
                         f"Legal escalation required: {len(reg)} restricted therapeutic "
-                        f"claim(s). Regulatory violations are never auto-repaired \u2014 "
+                        f"claim(s). Regulatory violations are never auto-repaired — "
                         f"route to market legal before any rewrite.")
             topics = ", ".join(sorted({v.dimension for v in blocking}))
             return (None, ref, f"New creative concept required: {topics} violation "
@@ -311,9 +311,9 @@ class BrandGenome:
                 "brands_encoded": len(self.g["brands"]),
                 "brands_in_portfolio": self.g.get("portfolio_size", 400),
                 "coverage_pct": round(100 * len(self.g["brands"])
-                                      / self.g.get("portfolio_size", 400), 1),
+                                    / self.g.get("portfolio_size", 400), 1),
                 "markets_encoded": len([k for k in self.g["markets"]
-                                        if not k.startswith("_")])}
+                                        if not k.startswith("_")})}
 
     # ---------- the public API ----------
     def evaluate(self, brand: str, market: str, copy: str,
@@ -635,12 +635,6 @@ GENOME_DATA = json.loads(r"""{
 
 # ==========================================================================
 # STREAMLIT UI
-#
-# Visual language borrowed from Unilever / HUL's own digital properties:
-#   · HUL corporate blue #035597 and Unilever deep blue #0F0E9A as the spine
-#   · the Unilever "U" — a letterform filled with small marks — as the wordmark
-#   · Shikhar's card-first, feed-like layout: every verdict is a card, not a row
-#   · unilever.com's habits: white surfaces, generous air, one accent, no chrome
 # ==========================================================================
 import html
 import streamlit as st
@@ -658,7 +652,6 @@ VERDICT_STYLE = {
 DIM_LABEL = {"claims": "Claims", "tone": "Tone", "adjacency": "Adjacency",
              "equity": "Equity", "visual": "Visual", "video_audio": "Spoken track"}
 
-# The Unilever U: a bold letterform carrying small marks. Homage, not the asset.
 U_MARK = """
 <svg viewBox="0 0 64 64" class="umark" aria-hidden="true">
   <path d="M14 8 L14 36 A18 18 0 0 0 50 36 L50 8" fill="none"
@@ -680,19 +673,16 @@ st.markdown("""
   --line:#E1E8F5; --surface:#FFFFFF; --canvas:#F5F8FD; --accent:#1B4DD1;
 }
 
-/* Force light rendering regardless of the viewer's Streamlit theme. Without
-   this a Cloud instance in dark mode paints near-white text on a light
-   background and the app reads as blank. Explicit colours beat a config file,
-   which GitHub's uploader may drop (dot-folder). */
 .stApp,[data-testid="stAppViewContainer"]{
   background:var(--canvas)!important;
   font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif!important;}
 [data-testid="stHeader"]{background:transparent!important;}
-.block-container{padding-top:1.6rem!important;max-width:1180px;}
-.stApp p,.stApp li,.stApp label,.stApp span,.stApp div,
-.stApp h1,.stApp h2,.stApp h3,.stApp h4,
-[data-testid="stMarkdownContainer"] *{color:var(--ink)!important;}
-.stApp,.stApp *{font-family:'Inter',-apple-system,sans-serif;}
+.block-container{padding-top:5rem!important;max-width:1180px;}
+
+/* Scoped styling to avoid breaking Streamlit internal components/icons */
+.stMarkdownContainer p,.stMarkdownContainer li,.stMarkdownContainer span,.stMarkdownContainer label{
+  color:var(--ink)!important;font-family:'Inter',-apple-system,sans-serif;
+}
 
 /* ---------- masthead ---------- */
 .mast{background:linear-gradient(115deg,#06255C 0%,var(--hul) 55%,#0B6BB8 100%);
@@ -787,7 +777,7 @@ st.markdown("""
 /* ---------- sidebar ---------- */
 [data-testid="stSidebar"]{background:#06255C!important;}
 [data-testid="stSidebar"] *{color:#D9E4F7!important;}
-[data-testid="stSidebar"] .block-container{padding-top:1.5rem;}
+[data-testid="stSidebar"] .block-container{padding-top:2rem;}
 .sb-head{display:flex;align-items:center;gap:11px;padding-bottom:14px;
   border-bottom:1px solid rgba(255,255,255,.14);margin-bottom:16px;}
 .sb-head .umark{width:30px;height:30px;flex:0 0 30px;}
@@ -815,7 +805,6 @@ st.markdown("""
 [data-testid="stExpander"]{background:var(--surface)!important;
   border:1px solid var(--line)!important;border-radius:13px!important;}
 [data-testid="stExpander"] summary{font-weight:600!important;font-size:13.5px!important;}
-.stCodeBlock,.stCodeBlock *{color:var(--ink)!important;font-size:12.5px!important;}
 .empty{background:var(--surface);border:1px dashed var(--line);border-radius:14px;
   padding:34px;text-align:center;color:var(--ink-2)!important;font-size:14px;}
 </style>""", unsafe_allow_html=True)
