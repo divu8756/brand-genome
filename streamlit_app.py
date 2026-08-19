@@ -3,15 +3,6 @@ streamlit_app.py — Brand Genome constraint engine.
 Project NEXT · HUL TechTonic Season 8
 
 SINGLE FILE BY DESIGN. Engine, rules and brand data are all inlined.
-
-Why: GitHub's web uploader silently skips zero-byte files, so an empty
-core/__init__.py never arrives and `from core.genome import ...` fails on
-Streamlit Cloud with ModuleNotFoundError. One file cannot have that problem.
-
-    streamlit run streamlit_app.py
-
-Deterministic. No LLM in the adjudication path. The model generates; the
-genome adjudicates. Never the reverse.
 """
 from __future__ import annotations
 import re, json, time
@@ -146,11 +137,6 @@ class BrandGenome:
         return out
 
     def _check_visual(self, asset: dict, brand: dict) -> list:
-        """
-        Multimodal checks. The brief's own example is a VIDEO meme, so an engine
-        that only reads text would fail the case it was designed for.
-        `asset` carries whatever the upstream vision model extracted.
-        """
         out, v = [], brand["visual"]
         pal = [p.upper() for p in v["palette"]]
         for c in asset.get("colours", []):
@@ -187,17 +173,7 @@ class BrandGenome:
 
     # ---------- repair ----------
     def _repair(self, copy: str, violations: list, brand: dict, market: dict) -> tuple:
-        """
-        Deterministic repair. An LLM may polish the result; it may never decide.
-
-        Only CLAIMS and TONE are auto-repairable. Adjacency and equity violations
-        are NOT: they require a different creative idea, not a word swap, and
-        pretending otherwise would let a bad concept through with clean copy.
-        """
         fixed, ref = copy, None
-        # Regulatory (RG-*) violations are NOT auto-repairable: a restricted
-        # therapeutic claim is a legal exposure, not a wording slip. Rewording it
-        # would let a legally exposed concept through with clean copy.
         repairable = [v for v in violations
                       if v.dimension in ("claims", "tone", "visual")
                       and not v.rule.startswith("RG-")]
@@ -205,15 +181,11 @@ class BrandGenome:
                     if v.dimension in ("adjacency", "equity")
                     or v.rule.startswith("RG-")]
 
-        # Order matters: strip quantifiers as a unit BEFORE substituting verbs,
-        # and substitute restricted terms rather than deleting them, or the
-        # sentence loses its verb and the repair reads as broken English.
         rules_hit = {v.rule for v in repairable}
 
         if "CL-4471" in rules_hit:
             best = max((c for c in brand["claims"] if c["market_ok"]),
                        key=lambda c: c["max_pct"], default=None)
-            # remove "by 90%", "by up to 90%", "90% more" as one unit
             fixed = re.sub(r"\s*\b(by|up to)?\s*\d{1,3}\s?%\s*(more|less|fewer)?",
                            " ", fixed, flags=re.I)
             if best:
@@ -235,7 +207,6 @@ class BrandGenome:
                 fixed = re.sub(r"\b([A-Z]{4,})\b",
                                lambda m: m.group(1).capitalize(), fixed)
 
-        # tidy
         fixed = re.sub(r"\s+([.,;:])", r"\1", fixed)
         fixed = re.sub(r"([.,;:]){2,}", r"\1", fixed)
         fixed = re.sub(r"\s{2,}", " ", fixed).strip()
@@ -258,14 +229,8 @@ class BrandGenome:
                                f"cannot be repaired by rewording.")
         return (fixed, ref, None)
 
-    # ---------- drift, versioning, override logging ----------
     def record_decision(self, verdict, human_action: str, actor: str,
                         note: str = "") -> dict:
-        """
-        Override logging. If brand teams routinely overrule the genome, the
-        genome is miscalibrated and must be retrained — not enforced harder.
-        Override rate is the product metric that keeps it honest.
-        """
         rec = {"ts": time.time(), "brand": verdict.brand, "market": verdict.market,
                "genome_verdict": verdict.verdict, "human_action": human_action,
                "override": human_action == "publish" and verdict.verdict == "BLOCKED",
@@ -275,7 +240,6 @@ class BrandGenome:
         return rec
 
     def override_rate(self, brand: str | None = None) -> dict:
-        """Tracked per brand. Rising override rate = the genome is wrong."""
         rows = [r for r in self._log
                 if brand is None or r["brand"].lower() == brand.lower()]
         blocked = [r for r in rows if r["genome_verdict"] == "BLOCKED"]
@@ -287,11 +251,6 @@ class BrandGenome:
                             else "healthy")}
 
     def drift(self, recent_copies: list, brand: str) -> dict:
-        """
-        Drift detection. No single asset is wrong, but the aggregate has moved.
-        Measures soft-violation density against the approved baseline — the
-        failure mode nobody notices until the brand has quietly changed.
-        """
         b = self.brand(brand)
         base = b.get("baseline_soft_rate", 0.10)
         rates = []
@@ -306,7 +265,6 @@ class BrandGenome:
                            else "within tolerance")}
 
     def version(self) -> dict:
-        """Brand evolution as a diff, not a memo."""
         return {"version": self.g["version"], "updated": self.g["updated"],
                 "brands_encoded": len(self.g["brands"]),
                 "brands_in_portfolio": self.g.get("portfolio_size", 400),
@@ -315,7 +273,6 @@ class BrandGenome:
                 "markets_encoded": len([k for k in self.g["markets"]
                                         if not k.startswith("_")})}
 
-    # ---------- the public API ----------
     def evaluate(self, brand: str, market: str, copy: str,
                  context_tags: list | None = None, asset: dict | None = None) -> Verdict:
         t0 = time.perf_counter()
@@ -679,7 +636,6 @@ st.markdown("""
 [data-testid="stHeader"]{background:transparent!important;}
 .block-container{padding-top:5rem!important;max-width:1180px;}
 
-/* Scoped styling to avoid breaking Streamlit internal components/icons */
 .stMarkdownContainer p,.stMarkdownContainer li,.stMarkdownContainer span,.stMarkdownContainer label{
   color:var(--ink)!important;font-family:'Inter',-apple-system,sans-serif;
 }
@@ -854,8 +810,8 @@ with st.sidebar:
     st.markdown("<div class='sb-lab'>Markets &amp; regulators</div>", unsafe_allow_html=True)
     st.markdown("".join(
         f"<div class='sb-mkt'><code>{k}</code><span>{m['regulator']}</span></div>"
-        for k, m in G.g["markets"].items() if not k.startswith("_")),
-        unsafe_allow_html=True)
+        for k, m in G.g["markets"].items() if not k.startswith("_")
+    ), unsafe_allow_html=True)
 
     st.markdown("""<div class='sb-foot'><b>Deterministic by design.</b><br>
       No LLM sits in the adjudication path. The model generates;
