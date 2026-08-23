@@ -16,7 +16,6 @@ in front of a brand director, so they carry rule IDs and reproduce exactly.
 The model writes the narrative. It never decides whether something ships.
 """
 from __future__ import annotations
-from __future__ import annotations
 import re, json, time, html
 from dataclasses import dataclass, asdict, field
 import streamlit as st
