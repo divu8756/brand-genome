@@ -49,6 +49,6 @@ The interviewer and the full dashboard. A simple mastery table is enough for now
 
 ## Definition of done
 - [ ] All 5 modes work end-to-end in both workspaces.
-- [ ] Mastery visibly changes after drills (§10).
+- [ ] Mastery visibly changes after drills (§11).
 - [ ] Grader standard deviation ≤ 0.5 per dimension. If not, report it and propose a fix.
 - [ ] `PROGRESS.md` is updated.

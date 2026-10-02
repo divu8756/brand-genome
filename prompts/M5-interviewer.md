@@ -1,6 +1,6 @@
 # M5 — 1:1 Case Interviewer agent
 
-**Read first:** @CLAUDE.md (Hard rule 4) @docs/SPEC.md (§6D, §10, §11) @docs/SPEC_ADDENDUM.md (D5, D6, D7, D8) @docs/PROGRESS.md
+**Read first:** @CLAUDE.md (Hard rule 4) @docs/SPEC.md (§6D, §11, §12) @docs/SPEC_ADDENDUM.md (D5, D6, D7, D8) @docs/PROGRESS.md
 
 Use plan mode. Include the LangGraph diagram (Mermaid) in the plan. Wait for approval.
 
@@ -59,6 +59,6 @@ A realistic, leak-proof, persistent text interviewer that ends in a rubric-score
 - **Simulated candidates:** an LLM plays a strong and a weak candidate on 3 cases. The strong one should score higher on every dimension.
 
 ## Definition of done
-- [ ] §10 interviewer items pass: no early leak, consistent invented facts.
+- [ ] §11 interviewer items pass: no early leak, consistent invented facts.
 - [ ] A full interview is playable on a phone.
 - [ ] The eval report is committed (with no source text), and `PROGRESS.md` is updated.

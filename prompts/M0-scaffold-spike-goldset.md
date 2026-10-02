@@ -1,6 +1,6 @@
 # M0 — Scaffold, risk spike, gold set
 
-**Read first:** @CLAUDE.md @docs/SPEC.md (§2, §4, §10) @docs/SPEC_ADDENDUM.md (D1, D2, D9, D11, D12)
+**Read first:** @CLAUDE.md @docs/SPEC.md (§2, §4, §11) @docs/SPEC_ADDENDUM.md (D1, D2, D9, D11, D12)
 
 Use plan mode. Your plan must:
 1. restate the goal;

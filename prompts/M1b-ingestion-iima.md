@@ -1,11 +1,11 @@
 # M1b — Slide-deck casebooks (IIMA)
 
-**Read first:** @CLAUDE.md @docs/SPEC.md (§4b, §4c, §5 CaseScript/Guesstimate/IndustryReport, §10) @docs/SPEC_ADDENDUM.md (D1, D8) @docs/SPIKE_REPORT.md @docs/PROGRESS.md
+**Read first:** @CLAUDE.md @docs/SPEC.md (§4b, §4c, §5 CaseScript/Guesstimate/IndustryReport, §11) @docs/SPEC_ADDENDUM.md (D1, D8) @docs/SPIKE_REPORT.md @docs/PROGRESS.md
 
 Use plan mode. Wait for approval.
 
 ## Goal
-Turn a landscape slide-deck casebook into structured CaseScripts, guesstimates and industry reports that meet the §10 IIMA thresholds.
+Turn a landscape slide-deck casebook into structured CaseScripts, guesstimates and industry reports that meet the §11 IIMA thresholds.
 
 ## In scope
 1. **Noise stripping.**
@@ -29,7 +29,7 @@ Turn a landscape slide-deck casebook into structured CaseScripts, guesstimates a
    - OBSERVATIONS → `evaluator_observations[]`.
 
    Pair each Approach page with its transcript page.
-6. **Multi-type cases** (§11). `case_type` stays the primary type; add a `secondary_types[]` field.
+6. **Multi-type cases** (§12). `case_type` stays the primary type; add a `secondary_types[]` field.
 7. **Guesstimates and datasheets.** Guesstimates → the Guesstimate table. Datasheet numbers → structured key/value with citations.
 8. **Panorama reports.** Store them as `IndustryReport`s. Link each one to cases by normalised sector (`linked_case_ids[]`).
 9. **Frameworks section** (~pp. 14–31) → `frameworks_raw` for M2.
@@ -52,7 +52,7 @@ Retrieval, chat and UI.
   - issue-tree similarity vs gold: node-label semantic match F1, and depth agreement.
 
 ## Definition of done
-- [ ] Every §10 IIMA metric is reported with numbers, with failures listed by case.
+- [ ] Every §11 IIMA metric is reported with numbers, with failures listed by case.
 - [ ] Re-running ingestion is idempotent and keeps label overrides.
 - [ ] The full IIMA run takes less than 10 minutes on the worker (D10), or the bottleneck is profiled.
 - [ ] `PROGRESS.md` is updated.

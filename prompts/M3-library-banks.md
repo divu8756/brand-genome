@@ -1,6 +1,6 @@
 # M3 — Library UI, workspaces, case & guesstimate banks
 
-**Read first:** @CLAUDE.md @docs/SPEC.md (§3, §6A, §8 mobile, §11) @docs/PROGRESS.md
+**Read first:** @CLAUDE.md @docs/SPEC.md (§3, §6A, §8 mobile, §12) @docs/PROGRESS.md
 
 Use plan mode. Wait for approval.
 
@@ -27,7 +27,7 @@ Everything from M1 and M2 becomes usable from the browser, including on a phone.
 
    The approach, issue tree and recommendation sit behind a "Reveal (spoils interview use)" toggle. Log the reveal, because M5 avoids revealed cases by default.
 7. **Guesstimate bank** and a datasheet viewer.
-8. **Zero-case gaps.** If a case type or sector has 0 cases, show "Generate practice case" → an AI-generated CaseScript, badged (§11).
+8. **Zero-case gaps.** If a case type or sector has 0 cases, show "Generate practice case" → an AI-generated CaseScript, badged (§12).
 
 ## Out of scope
 Drills, mastery and the interviewer.

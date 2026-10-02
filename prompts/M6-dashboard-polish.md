@@ -43,7 +43,7 @@ A finished, deployable product with a portfolio-ready write-up.
 - Every eval suite re-run on the final build; results go into CASE_STUDY.md.
 
 ## Definition of done
-- [ ] All of §10 re-verified on the production deployment.
-- [ ] Weakest areas show on the dashboard (§10).
+- [ ] All of §11 re-verified on the production deployment.
+- [ ] Weakest areas show on the dashboard (§11).
 - [ ] CASE_STUDY.md is complete with real numbers.
 - [ ] Tagged `v1.0`.

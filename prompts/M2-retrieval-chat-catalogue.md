@@ -1,6 +1,6 @@
 # M2 — Grounded chat + framework catalogue
 
-**Read first:** @CLAUDE.md @docs/SPEC.md (§5 Framework, §6B Explain, §7, §10) @docs/SPEC_ADDENDUM.md (D3, D8, D10) @docs/PROGRESS.md
+**Read first:** @CLAUDE.md @docs/SPEC.md (§5 Framework, §6B Explain, §7, §11) @docs/SPEC_ADDENDUM.md (D3, D8, D10) @docs/PROGRESS.md
 
 Use plan mode. Wait for approval.
 
@@ -45,7 +45,7 @@ I will write `evals/gold/retrieval_{consulting,pm}.jsonl` (about 30 Qs each, wit
 - **latency:** time-to-first-token p50/p95 over 20 warm requests.
 
 ## Definition of done
-- [ ] §10 out-of-corpus and isolation items pass.
+- [ ] §11 out-of-corpus and isolation items pass.
 - [ ] The ablation table shows hybrid ≥ the best single method, or explains why not.
 - [ ] TTFT p50 < 3 s warm (D10).
 - [ ] Both catalogues are built. Counts and AI-generated field ratios are reported.

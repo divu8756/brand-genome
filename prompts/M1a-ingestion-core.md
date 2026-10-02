@@ -1,6 +1,6 @@
 # M1a — Generic ingestion pipeline + XLRI
 
-**Read first:** @CLAUDE.md @docs/SPEC.md (§4a, §4c, §5, §8, §10, §11) @docs/SPEC_ADDENDUM.md (D2, D4, D8, D12) @docs/SPIKE_REPORT.md @docs/PROGRESS.md
+**Read first:** @CLAUDE.md @docs/SPEC.md (§4a, §4c, §5, §8, §11, §12) @docs/SPEC_ADDENDUM.md (D2, D4, D8, D12) @docs/SPIKE_REPORT.md @docs/PROGRESS.md
 
 Use plan mode. Wait for approval.
 
@@ -56,10 +56,10 @@ A book-agnostic, resumable ingestion pipeline. It must be proven on the XLRI PM 
   - a scanned (image-only) page;
   - duplicate pages.
 - **Resume test:** kill the worker mid-job, restart it, and confirm no pages are duplicated or skipped.
-- **`evals.run ingestion --doc xlri`:** compare against `evals/gold/xlri_inventory.json` and report §10 item 4 (frameworks, case types, teardowns, interview experiences, offset).
+- **`evals.run ingestion --doc xlri`:** compare against `evals/gold/xlri_inventory.json` and report §11 item 4 (frameworks, case types, teardowns, interview experiences, offset).
 
 ## Definition of done
-- [ ] All §10 XLRI items pass, or their gaps are reported with numbers.
+- [ ] All §11 XLRI items pass, or their gaps are reported with numbers.
 - [ ] The RICE table is retrievable from the DB as structured JSON (show a query).
 - [ ] Citations use `printed_page` (offset 4 verified on 3 sample pages).
 - [ ] Total XLRI ingestion time is logged, and the cost is logged in Langfuse.
